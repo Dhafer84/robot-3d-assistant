@@ -9,7 +9,7 @@ Le serveur Node lance automatiquement `tts/server.py` s'il trouve l'environnemen
 cd tts
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-.venv/bin/python -m piper.download_voices --data-dir voices fr_FR-upmc-medium en_US-ryan-high
+.venv/bin/python -m piper.download_voices --data-dir voices fr_FR-tom-medium en_US-ryan-high
 ```
 
 Redémarre ensuite le serveur (`./stop_robot.sh` puis `./start_robot.sh`). Le serveur de voix

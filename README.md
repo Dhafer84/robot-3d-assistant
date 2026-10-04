@@ -55,7 +55,7 @@ Le ton et les règles de réponse (langue, longueur, pas d'emojis car tout est l
 | `GROQ_API_KEY` | — | Clé API Groq (obligatoire) |
 | `GROQ_MODEL` | `openai/gpt-oss-20b` | Modèle utilisé pour les réponses |
 | `PORT` | `3000` | Port du serveur |
-| `TTS_VOICE_FR` | `fr_FR-upmc-medium:1` | Voix Piper française (`modele` ou `modele:locuteur`) |
+| `TTS_VOICE_FR` | `fr_FR-tom-medium` | Voix Piper française (`modele` ou `modele:locuteur`) |
 | `TTS_VOICE_EN` | `en_US-ryan-high` | Voix Piper anglaise |
 | `TTS_SPEED` | `1.0` | Vitesse de la voix |
 

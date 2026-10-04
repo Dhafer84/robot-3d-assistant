@@ -8,7 +8,7 @@ Node qui relaie les requêtes du navigateur (POST /api/tts).
 
 Configuration (variables d'environnement, voir backend/.env.example) :
     TTS_PORT       port local (défaut 5005)
-    TTS_VOICE_FR   voix française, "modele" ou "modele:locuteur" (défaut fr_FR-upmc-medium:1)
+    TTS_VOICE_FR   voix française, "modele" ou "modele:locuteur" (défaut fr_FR-tom-medium)
     TTS_VOICE_EN   voix anglaise (défaut en_US-ryan-high)
     TTS_SPEED      vitesse de parole, 1.0 = normale, 1.1 = 10 % plus rapide (défaut 1.0)
 """
@@ -28,7 +28,7 @@ SPEED = float(os.environ.get("TTS_SPEED", "1.0"))
 MAX_TEXT_LENGTH = 1000
 
 VOICE_SPECS = {
-    "fr": os.environ.get("TTS_VOICE_FR", "fr_FR-upmc-medium:1"),
+    "fr": os.environ.get("TTS_VOICE_FR", "fr_FR-tom-medium"),
     "en": os.environ.get("TTS_VOICE_EN", "en_US-ryan-high"),
 }
 
