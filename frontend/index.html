@@ -59,17 +59,20 @@
       background: radial-gradient(circle at top, #0f172a, #020617);
     }
 
-    /* Aperçu webcam, visible seulement quand le suivi est actif (en miroir, plus naturel) */
-    video {
-      width: 100%;
+    /* Aperçu webcam (iframe isolée de js/tracking.js), visible seulement quand le suivi est actif */
+    #trackingSlot {
+      display: none;
+      flex: none;
+      aspect-ratio: 4 / 3;
       border-radius: 8px;
+      overflow: hidden;
       border: 1px solid #374151;
       background: black;
-      transform: scaleX(-1);
-      display: none;
     }
 
-    body.tracking video { display: block; }
+    #trackingSlot iframe { width: 100%; height: 100%; border: 0; display: block; }
+
+    body.tracking #trackingSlot { display: block; }
 
     #camBtn.active { background: #1d4ed8; color: white; }
 
@@ -211,7 +214,8 @@
         flex: none;
       }
       /* La vidéo reste active pour le suivi, mais on ne l'affiche pas */
-      video { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+      /* Petite vignette dans un coin : on voit que la caméra est active */
+      #trackingSlot { position: fixed; top: 8px; right: 8px; width: 96px; z-index: 10; }
       #ui { flex-wrap: wrap; }
       #status { flex-basis: 100%; }
     }
@@ -226,7 +230,7 @@
       border-left: none;
       border-top: 1px solid #1f2933;
     }
-    .embed video { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+    .embed #trackingSlot { position: fixed; top: 8px; right: 8px; width: 96px; z-index: 10; }
     .embed #modeAssistantBtn, .embed #modeMiroirBtn { display: none; }
     .embed #ui { padding: 8px; gap: 8px; flex-wrap: wrap; }
     .embed #ui button { padding: 6px 12px; font-size: 0.85rem; }
@@ -243,7 +247,7 @@
   <div id="top">
     <div id="scene-container"></div>
     <div id="side">
-      <video id="inputVideo" autoplay muted playsinline></video>
+      <div id="trackingSlot"></div>
       <div id="chat" aria-live="polite"></div>
       <form id="chatForm" autocomplete="off">
         <input id="chatInput" type="text" placeholder="Écris ta question…" maxlength="2000" />
@@ -262,8 +266,8 @@
 <script type="importmap">
 {
   "imports": {
-    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    "three": "/vendor/three/build/three.module.js",
+    "three/addons/": "/vendor/three/examples/jsm/"
   }
 }
 </script>

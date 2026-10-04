@@ -5,6 +5,7 @@ const path = require("path");
 const { spawn } = require("child_process");
 const express = require("express");
 const dotenv = require("dotenv");
+const { serveVendor, securityHeaders, parseOrigins } = require("./security");
 
 dotenv.config({ path: path.join(__dirname, ".env") });
 
@@ -15,6 +16,10 @@ const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const GROQ_MODEL = process.env.GROQ_MODEL || "openai/gpt-oss-20b";
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 const FRONTEND_DIR = path.join(__dirname, "..", "frontend");
+// Sites autorisés à afficher l'assistant dans une bulle (embed.js), en plus de lui-même
+const FRAME_ANCESTORS = parseOrigins(
+  process.env.FRAME_ANCESTORS ?? "https://qualitycrew.fr https://www.qualitycrew.fr"
+);
 const PROFILE_PATH = path.join(__dirname, "profile.md");
 
 // Synthèse vocale Piper (tts/server.py), lancée par ce serveur si elle est installée
@@ -149,9 +154,12 @@ function rateLimit(max, message) {
 const app = express();
 // Derrière Nginx (même machine), l'adresse du visiteur est dans X-Forwarded-For
 app.set("trust proxy", "loopback");
+app.disable("x-powered-by");
+app.use(securityHeaders({ frontendDir: FRONTEND_DIR, frameAncestors: FRAME_ANCESTORS }));
 app.use(express.json({ limit: "100kb" }));
 
 // Frontend (index.html, js/, models/…) servi sur la même origine que l'API
+serveVendor(app); // Three.js, Draco, MediaPipe depuis node_modules (voir security.js)
 app.use(express.static(FRONTEND_DIR));
 
 // Répond en texte brut, envoyé morceau par morceau au fil de la génération

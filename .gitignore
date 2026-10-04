@@ -11,7 +11,7 @@ node_modules/
 .DS_Store
 
 # Fichier PID du serveur
-.robot.pid
+.robot*.pid
 
 # Fichiers de travail 3D lourds (régénérables, voir assets/blender/*.py)
 assets/reference/*.glb

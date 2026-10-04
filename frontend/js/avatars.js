@@ -16,7 +16,8 @@ const SMOOTHING = 10; // plus grand = suit plus vite
 const LOOK_AT_CAMERA_WEIGHT = 0.9;
 const LOOK_AT_CAMERA_MAX_ANGLE = THREE.MathUtils.degToRad(50);
 
-const DRACO_DECODER_PATH = "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/gltf/";
+// Servi par notre serveur depuis node_modules (backend/security.js)
+const DRACO_DECODER_PATH = "/vendor/three/examples/jsm/libs/draco/gltf/";
 
 // Interpolation indépendante du nombre d'images par seconde
 function damp(current, target, dt) {

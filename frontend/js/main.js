@@ -9,7 +9,7 @@ import { isVoiceSupported, createListener, createSpeaker } from "./voice.js";
 import { createChat } from "./chat.js";
 
 const sceneContainer = document.getElementById("scene-container");
-const videoElement = document.getElementById("inputVideo");
+const trackingSlot = document.getElementById("trackingSlot");
 const chatListEl = document.getElementById("chat");
 const chatForm = document.getElementById("chatForm");
 const chatInput = document.getElementById("chatInput");
@@ -86,7 +86,7 @@ modeButtons.miroir.addEventListener("click", () => {
 setMode(state.mode);
 
 // ====== Webcam (à la demande) ======
-const tracker = createTracker(videoElement, state);
+const tracker = createTracker(trackingSlot, state);
 
 function setTrackingUI(active) {
   document.body.classList.toggle("tracking", active);
@@ -103,6 +103,8 @@ camBtn.addEventListener("click", async () => {
   }
   camBtn.disabled = true;
   setStatus("Démarrage de la caméra…");
+  // L'aperçu s'affiche dès le démarrage : la page de suivi a besoin d'être visible pour tourner
+  document.body.classList.add("tracking");
   try {
     await tracker.start();
     setTrackingUI(true);
