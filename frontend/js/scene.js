@@ -17,7 +17,7 @@ export function createScene(container) {
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.setSize(container.clientWidth, container.clientHeight);
+  renderer.setSize(container.clientWidth || 1, container.clientHeight || 1, false);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   container.appendChild(renderer.domElement);
 
@@ -26,11 +26,16 @@ export function createScene(container) {
   keyLight.position.set(1, 2, 3);
   scene.add(keyLight);
 
-  window.addEventListener("resize", () => {
-    camera.aspect = container.clientWidth / container.clientHeight;
+  // Le canvas remplit son conteneur en CSS (voir index.html) ; on adapte sa résolution
+  // à chaque changement de taille du conteneur, pas seulement de la fenêtre.
+  new ResizeObserver(() => {
+    const width = container.clientWidth;
+    const height = container.clientHeight;
+    if (!width || !height) return;
+    camera.aspect = width / height;
     camera.updateProjectionMatrix();
-    renderer.setSize(container.clientWidth, container.clientHeight);
-  });
+    renderer.setSize(width, height, false);
+  }).observe(container);
 
   return { scene, camera, renderer };
 }

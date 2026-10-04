@@ -10,9 +10,40 @@ const MIN_SENTENCE_LENGTH = 25; // évite de lire des bouts de phrase trop court
 const SENTENCE_END = /[.!?…;:]+["»)]?\s+|\n+/g;
 
 // L'IA commence sa réponse par une balise d'émotion, ex. "<joie> Avec plaisir !"
+// (parfois plus loin dans la réponse, et parfois coupée entre deux morceaux du flux).
 const EMOTIONS = ["neutre", "joie", "reflexion", "surprise", "desole"];
-const LEADING_TAG = /^\s*<(\w+)>\s*/;
-const ANY_TAG = new RegExp(`<(${EMOTIONS.join("|")})>\\s*`, "g");
+const TAG = /<\s*([a-zéè]+)\s*>\s*/gi;
+const PARTIAL_TAG_AT_END = /<\s*[a-zéè]*\s*$/i;
+
+// Retire les balises du texte reçu au fil de l'eau ; onEmotion(nom) est appelé pour chacune.
+// Un début de balise en fin de morceau ("<neu") est gardé de côté jusqu'au morceau suivant.
+function createTagFilter(onEmotion) {
+  let held = "";
+  const strip = (text) =>
+    text.replace(TAG, (tag, name) => {
+      name = name.toLowerCase();
+      if (!EMOTIONS.includes(name)) return tag; // pas une balise d'émotion : on garde le texte
+      onEmotion(name);
+      return "";
+    });
+  return {
+    push(chunk) {
+      let text = held + chunk;
+      held = "";
+      const partial = text.match(PARTIAL_TAG_AT_END);
+      if (partial && partial[0].length <= 14) {
+        held = partial[0];
+        text = text.slice(0, partial.index);
+      }
+      return strip(text);
+    },
+    flush() {
+      const text = strip(held);
+      held = "";
+      return text;
+    },
+  };
+}
 
 export function createChat({ listEl, speaker, state, onStatus }) {
   const history = [];
@@ -60,11 +91,37 @@ export function createChat({ listEl, speaker, state, onStatus }) {
     onStatus("Je réfléchis… 🤔");
     state.thinking = true;
 
-    let raw = ""; // texte reçu, balise d'émotion comprise
-    let tagRead = false;
-    let emotion = "neutre";
+    let emotion = null;
     let answer = "";
     let unspoken = "";
+    const tags = createTagFilter((name) => {
+      emotion = name;
+      state.emotion = name;
+      state.emotionAt = performance.now() / 1000;
+    });
+
+    // Ajoute du texte visible à la réponse : affichage et lecture phrase par phrase
+    function append(text) {
+      if (!answer) text = text.trimStart();
+      if (!text) return;
+      if (state.thinking) {
+        state.thinking = false;
+        if (!emotion) {
+          state.emotion = "neutre";
+          state.emotionAt = performance.now() / 1000;
+        }
+      }
+      answer += text;
+      unspoken += text;
+      bubble.textContent = answer;
+      bubble.classList.remove("pending");
+      listEl.scrollTop = listEl.scrollHeight;
+
+      const [sentences, rest] = takeSentences(unspoken);
+      sentences.forEach((s) => speaker.say(s));
+      unspoken = rest;
+    }
+
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -91,51 +148,15 @@ export function createChat({ listEl, speaker, state, onStatus }) {
 
       const decoder = new TextDecoder();
       for await (const chunk of res.body) {
-        raw += decoder.decode(chunk, { stream: true });
-
-        // Balise d'émotion en tête : on attend de l'avoir reçue en entier avant d'afficher
-        if (!tagRead) {
-          const match = raw.match(LEADING_TAG);
-          if (match) {
-            if (EMOTIONS.includes(match[1])) emotion = match[1];
-            raw = raw.slice(match[0].length);
-            tagRead = true;
-          } else if (!raw.trimStart().startsWith("<") || raw.length > 20) {
-            tagRead = true; // pas de balise : on affiche tel quel
-          } else {
-            continue;
-          }
-          state.emotion = emotion;
-          state.emotionAt = performance.now() / 1000;
-          state.thinking = false;
-        }
-
-        const text = raw.replace(ANY_TAG, "");
-        raw = "";
-        if (!text) continue;
-        answer += text;
-        unspoken += text;
-        bubble.textContent = answer;
-        bubble.classList.remove("pending");
-        listEl.scrollTop = listEl.scrollHeight;
-
-        const [sentences, rest] = takeSentences(unspoken);
-        sentences.forEach((s) => speaker.say(s));
-        unspoken = rest;
+        append(tags.push(decoder.decode(chunk, { stream: true })));
       }
-      // Réponse très courte sans balise complète : on l'affiche telle quelle
-      if (!tagRead && raw.trim()) {
-        answer = raw.replace(ANY_TAG, "");
-        unspoken = answer;
-        bubble.textContent = answer;
-        bubble.classList.remove("pending");
-      }
+      append(tags.flush());
       state.thinking = false;
       if (unspoken.trim()) speaker.say(unspoken);
       if (!answer.trim()) throw new Error("Réponse vide.");
 
       // La balise est gardée dans l'historique pour que l'IA conserve ce format
-      remember("assistant", `<${emotion}> ${answer}`);
+      remember("assistant", `<${emotion || "neutre"}> ${answer}`);
       onStatus("Prêt.");
     } catch (err) {
       state.thinking = false;
