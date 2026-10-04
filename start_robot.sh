@@ -1,45 +1,36 @@
 #!/bin/bash
+# Lance le Robot 3D Assistant (un seul serveur : frontend + API) et ouvre le navigateur.
 
-echo "🚀 Lancement du projet Robot 3D Assistant..."
+set -e
 
-# === CONFIGURE TES CHEMINS ICI ===
-BACKEND_DIR="$HOME/Documents/robot-3d-assistant/backend"
-FRONTEND_DIR="$HOME/Documents/robot-3d-assistant/frontend"
+ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+BACKEND_DIR="$ROOT_DIR/backend"
+PID_FILE="$ROOT_DIR/.robot.pid"
+LOG_FILE="$BACKEND_DIR/backend.log"
 
-# ================================
-# Lancer le Backend
-# ================================
-echo "📡 Démarrage du backend..."
-cd "$BACKEND_DIR"
-npm install --silent
-NODE_ENV=production nohup node server.js > backend.log 2>&1 &
-BACKEND_PID=$!
+# Charge le PATH de l'utilisateur (node, npm) quand le script est lancé depuis Robot3D.app
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
-echo "   → Backend lancé (PID: $BACKEND_PID)"
-echo "   → Logs: $BACKEND_DIR/backend.log"
+echo "🚀 Lancement du Robot 3D Assistant..."
 
-# ================================
-# Lancer le Frontend
-# ================================
-echo "🌐 Démarrage du frontend..."
+if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+  echo "   → Déjà lancé (PID: $(cat "$PID_FILE"))."
+else
+  if [ ! -f "$BACKEND_DIR/.env" ]; then
+    echo "⚠️  backend/.env manquant : copie backend/.env.example et ajoute ta clé Groq."
+    exit 1
+  fi
 
-cd "$FRONTEND_DIR"
-npm install --silent
-
-# Vérifier si live-server est installé
-if ! command -v live-server &> /dev/null
-then
-    echo "⚠️  live-server n'est pas installé. Installation globale..."
-    npm install -g live-server
+  cd "$BACKEND_DIR"
+  npm install --silent
+  nohup node server.js > "$LOG_FILE" 2>&1 &
+  echo $! > "$PID_FILE"
+  echo "   → Serveur lancé (PID: $(cat "$PID_FILE")), logs : $LOG_FILE"
+  sleep 1
 fi
 
-nohup live-server --port=5500 --quiet > frontend.log 2>&1 &
-FRONTEND_PID=$!
+PORT=$(grep -E '^PORT=' "$BACKEND_DIR/.env" | cut -d= -f2)
+URL="http://localhost:${PORT:-3000}"
 
-echo "   → Frontend lancé (PID: $FRONTEND_PID)"
-echo "   → Logs: $FRONTEND_DIR/frontend.log"
-
-echo ""
-echo "🌟 Projet lancé avec succès !"
-echo "👉 Ouvre ton navigateur : http://localhost:5500"
-echo ""
+echo "👉 $URL"
+open "$URL"

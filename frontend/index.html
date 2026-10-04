@@ -2,10 +2,11 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
+  <link rel="icon" href="favicon.ico" />
   <title>Dhafer • Robot 3D Assistant</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-  <!-- MediaPipe Face Mesh + Camera utils -->
+  <!-- MediaPipe : visage, pose et accès webcam -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
@@ -87,6 +88,11 @@
       background: #1f2937;
     }
 
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
     button:active {
       transform: scale(0.97);
     }
@@ -107,6 +113,23 @@
       color: #9ca3af;
     }
 
+    /* Écrans étroits : la scène passe au-dessus, le panneau en dessous */
+    @media (max-width: 720px) {
+      #top { flex-direction: column; }
+      #scene-container { min-height: 0; }
+      #side {
+        width: 100%;
+        border-left: none;
+        border-top: 1px solid #1f2933;
+        flex-direction: row;
+        max-height: 35vh;
+      }
+      video { width: 40%; object-fit: cover; }
+      #answer { flex: 1; margin-top: 0; }
+      #ui { flex-wrap: wrap; }
+      #status { flex-basis: 100%; }
+    }
+
     #modeAssistantBtn.active,
     #modeMiroirBtn.active {
       background: #4ade80;
@@ -124,20 +147,21 @@
   </div>
 
   <div id="ui">
-    <button id="talkBtn">🎙️ Parler</button>
+    <button id="talkBtn">🎙️ Activer écoute auto</button>
     <button id="modeAssistantBtn">🤖 Assistant</button>
     <button id="modeMiroirBtn">🪞 Miroir</button>
+    <button id="avatarBtn" title="Changer d'avatar">🧍 Humanoïde</button>
     <div id="status">Prêt.</div>
   </div>
 <script type="importmap">
 {
   "imports": {
-    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
   }
 }
 </script>
 
-  <!-- On charge main.js comme MODULE ES -->
-  <script type="module" src="main.js"></script>
+  <script type="module" src="js/main.js"></script>
 </body>
 </html>
