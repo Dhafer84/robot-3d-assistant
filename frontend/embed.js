@@ -3,16 +3,28 @@
 //   <script src="https://assistant.qualitycrew.fr/embed.js" defer></script>
 //
 // Options (attributs facultatifs de la balise <script>) :
-//   data-label="Parler à mon assistant"   texte de l'infobulle du bouton
+//   data-lang="en"                         textes du bouton et de la bulle en anglais
+//   data-label / data-title / data-close   textes du bouton, de l'en-tête et du bouton
+//                                          de fermeture (remplacent ceux de data-lang)
 //   data-position="left"                   bulle en bas à gauche au lieu de la droite
+//   data-origin="https://assistant.…"      adresse de l'assistant, si ce fichier est servi
+//                                          par le site hôte lui-même (copie locale)
 //
 // L'assistant (modèle 3D de plusieurs Mo) n'est chargé qu'au premier clic sur le bouton.
 (() => {
   const script = document.currentScript;
   if (!script || document.getElementById("r3d-launcher")) return;
 
-  const origin = new URL(script.src).origin;
-  const label = script.dataset.label || "Parler à mon assistant";
+  // Par défaut, l'assistant est sur le domaine d'où vient ce script
+  const origin = new URL(script.dataset.origin || script.src).origin;
+  const TEXTS = {
+    fr: { label: "Parler à mon assistant", title: "Assistant de Dhafer", close: "Fermer" },
+    en: { label: "Talk to my assistant", title: "Dhafer's assistant", close: "Close" },
+  };
+  const { label: dataLabel, title: dataTitle, close: dataClose } = script.dataset;
+  const base = TEXTS[script.dataset.lang] || TEXTS.fr;
+  const texts = { label: dataLabel || base.label, title: dataTitle || base.title, close: dataClose || base.close };
+  const label = texts.label;
   const side = script.dataset.position === "left" ? "left" : "right";
 
   const style = document.createElement("style");
@@ -65,11 +77,11 @@
   const panel = document.createElement("div");
   panel.id = "r3d-panel";
   panel.setAttribute("role", "dialog");
-  panel.setAttribute("aria-label", "Assistant 3D de Dhafer");
+  panel.setAttribute("aria-label", texts.title);
   panel.innerHTML = `
     <div id="r3d-header">
-      <span>Assistant de Dhafer</span>
-      <button id="r3d-close" type="button" aria-label="Fermer">×</button>
+      <span>${texts.title}</span>
+      <button id="r3d-close" type="button" aria-label="${texts.close}">×</button>
     </div>`;
 
   let frame = null;
@@ -78,7 +90,7 @@
     if (!frame) {
       frame = document.createElement("iframe");
       frame.id = "r3d-frame";
-      frame.title = "Assistant 3D de Dhafer";
+      frame.title = texts.title;
       frame.src = `${origin}/?embed`;
       // Micro et caméra doivent être délégués explicitement à l'iframe
       frame.allow = "microphone; camera; autoplay";
