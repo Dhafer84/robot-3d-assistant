@@ -140,6 +140,22 @@ chatForm.addEventListener("submit", (event) => {
   handleText(text);
 });
 
+// Micro refusé : on explique quoi faire. Dans la bulle d'un autre site, le micro passe par
+// une délégation que certains navigateurs mobiles refusent : en plein écran, il n'y en a plus.
+function showMicBlocked() {
+  statusEl.textContent = EMBED
+    ? "Micro bloqué dans la bulle : autorise-le pour ce site, écris ta question, ou "
+    : "Micro refusé : autorise-le pour ce site (icône à gauche de l'adresse) ou écris ta question.";
+  if (EMBED) {
+    const link = document.createElement("a");
+    link.href = `${location.origin}/`;
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.textContent = "ouvre l'assistant en plein écran ↗";
+    statusEl.appendChild(link);
+  }
+}
+
 let listener = null;
 if (!isVoiceSupported()) {
   talkBtn.disabled = true;
@@ -151,8 +167,9 @@ if (!isVoiceSupported()) {
       setStatus(`Tu as dit : « ${text} »`);
       handleText(text);
     },
-    onStatus: (text, listening) => {
-      setStatus(text);
+    onStatus: (text, listening, error) => {
+      if (error === "not-allowed") showMicBlocked();
+      else setStatus(text);
       talkBtn.textContent = listening ? "⏹️ Stop écoute" : "🎙️ Activer écoute auto";
     },
   });

@@ -63,6 +63,8 @@
     #r3d-frame { flex: 1; width: 100%; border: none; background: #020617; }
     @media (max-width: 480px) {
       #r3d-panel { inset: 0; width: auto; height: auto; border-radius: 0; }
+      /* En plein écran, le bouton rond masquerait les commandes : la croix suffit */
+      #r3d-panel.r3d-open ~ #r3d-launcher { display: none; }
     }
   `;
   document.head.appendChild(style);

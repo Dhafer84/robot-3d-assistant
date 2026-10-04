@@ -158,7 +158,8 @@ export function createSpeaker(state) {
 }
 
 // Écoute continue : onText(texte) est appelé pour chaque phrase reconnue.
-// onStatus(message, isListening) informe l'interface des changements d'état.
+// onStatus(message, isListening, erreur) informe l'interface des changements d'état ;
+// erreur vaut "not-allowed" quand le micro est refusé.
 export function createListener({ state, onText, onStatus }) {
   const recognition = new SpeechRecognition();
   recognition.lang = "fr-FR";
@@ -167,14 +168,31 @@ export function createListener({ state, onText, onStatus }) {
   recognition.continuous = true;
 
   let listening = false;
+  let micGranted = false;
+
+  function micRefused() {
+    listening = false;
+    onStatus("Micro refusé.", false, "not-allowed");
+  }
+
+  // Dans une iframe (bulle sur un autre site), surtout sur mobile, la reconnaissance vocale
+  // échoue parfois directement en "not-allowed" sans afficher la demande d'autorisation.
+  // getUserMedia, lui, l'affiche : on demande donc le micro d'abord, puis on le relâche.
+  async function ensureMicrophone() {
+    if (micGranted || !navigator.mediaDevices?.getUserMedia) return;
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach((track) => track.stop());
+    micGranted = true;
+  }
 
   recognition.onstart = () => onStatus("Écoute en cours… 🎙️ (parle quand tu veux)", true);
 
   recognition.onerror = (e) => {
     // "no-speech" et "aborted" sont normaux en écoute continue
     if (e.error === "no-speech" || e.error === "aborted") return;
+    if (e.error === "not-allowed" || e.error === "service-not-allowed") return micRefused();
     listening = false;
-    onStatus(`Erreur reconnaissance vocale : ${e.error}`, false);
+    onStatus(`Erreur reconnaissance vocale : ${e.error}`, false, e.error);
   };
 
   // Le navigateur coupe régulièrement l'écoute : on la relance tant qu'elle est active
@@ -194,10 +212,21 @@ export function createListener({ state, onText, onStatus }) {
     get listening() {
       return listening;
     },
-    toggle() {
-      listening = !listening;
+    async toggle() {
+      if (listening) {
+        listening = false;
+        recognition.stop();
+        return false;
+      }
+      listening = true;
+      onStatus("Autorisation du micro…", true);
+      try {
+        await ensureMicrophone();
+      } catch {
+        micRefused();
+        return false;
+      }
       if (listening) recognition.start();
-      else recognition.stop();
       return listening;
     },
     stop() {
