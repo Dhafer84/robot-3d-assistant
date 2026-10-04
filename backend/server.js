@@ -22,6 +22,10 @@ const TTS_PORT = Number(process.env.TTS_PORT) || 5005;
 const TTS_URL = `http://127.0.0.1:${TTS_PORT}`;
 const MAX_TTS_LENGTH = 600;
 
+// Limites par visiteur (adresse IP), pour protéger le quota Groq gratuit
+const CHAT_LIMIT_PER_MINUTE = Number(process.env.CHAT_LIMIT_PER_MINUTE) || 10;
+const TTS_LIMIT_PER_MINUTE = Number(process.env.TTS_LIMIT_PER_MINUTE) || 60;
+
 const MAX_MESSAGE_LENGTH = 2000;
 const MAX_HISTORY = 10; // messages (questions + réponses) envoyés à l'IA
 
@@ -114,14 +118,48 @@ if (!GROQ_API_KEY) {
   console.warn("⚠️  GROQ_API_KEY n'est pas définie dans backend/.env (voir .env.example)");
 }
 
+// Limite simple en mémoire : au plus `max` requêtes par minute et par adresse IP
+function rateLimit(max, message) {
+  const hits = new Map(); // ip -> instants (ms) des requêtes de la dernière minute
+  setInterval(() => {
+    const cutoff = Date.now() - 60_000;
+    for (const [ip, times] of hits) {
+      const recent = times.filter((t) => t > cutoff);
+      if (recent.length) hits.set(ip, recent);
+      else hits.delete(ip);
+    }
+  }, 60_000).unref();
+
+  return (req, res, next) => {
+    const now = Date.now();
+    const times = (hits.get(req.ip) || []).filter((t) => t > now - 60_000);
+    if (times.length >= max) {
+      const retryAfter = Math.ceil((times[0] + 60_000 - now) / 1000);
+      res.setHeader("Retry-After", retryAfter);
+      return res.status(429).json({ error: message(retryAfter), retryAfter });
+    }
+    times.push(now);
+    hits.set(req.ip, times);
+    next();
+  };
+}
+
 const app = express();
+// Derrière Nginx (même machine), l'adresse du visiteur est dans X-Forwarded-For
+app.set("trust proxy", "loopback");
 app.use(express.json({ limit: "100kb" }));
 
 // Frontend (index.html, js/, models/…) servi sur la même origine que l'API
 app.use(express.static(FRONTEND_DIR));
 
 // Répond en texte brut, envoyé morceau par morceau au fil de la génération
-app.post("/api/chat", async (req, res) => {
+const chatLimit = rateLimit(
+  CHAT_LIMIT_PER_MINUTE,
+  (s) => `Tu poses beaucoup de questions d'un coup ! Laisse-moi souffler ${s} secondes, s'il te plaît.`
+);
+const ttsLimit = rateLimit(TTS_LIMIT_PER_MINUTE, () => "Trop de demandes de voix.");
+
+app.post("/api/chat", chatLimit, async (req, res) => {
   const messages = req.body?.messages;
   const error = validateMessages(messages);
   if (error) return res.status(400).json({ error });
@@ -201,7 +239,7 @@ app.post("/api/chat", async (req, res) => {
 
 // Synthèse vocale : renvoie un WAV pour une phrase. En cas d'échec (Piper non installé
 // ou encore en démarrage), le navigateur se rabat sur sa propre voix.
-app.post("/api/tts", async (req, res) => {
+app.post("/api/tts", ttsLimit, async (req, res) => {
   const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
   const lang = req.body?.lang === "en" ? "en" : "fr";
   if (!text || text.length > MAX_TTS_LENGTH) return res.status(400).json({ error: "Texte invalide." });

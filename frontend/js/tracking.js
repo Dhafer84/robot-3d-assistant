@@ -1,5 +1,4 @@
 // tracking.js — webcam + MediaPipe (FaceMesh pour la tête, Pose pour les bras).
-// Les scripts MediaPipe sont chargés en global depuis index.html.
 
 const MEDIAPIPE_CDN = "https://cdn.jsdelivr.net/npm/@mediapipe";
 
@@ -81,23 +80,47 @@ function onPoseResults(results, state) {
   }
 }
 
-export async function startTracking(videoElement, state) {
-  if (!window.FaceMesh || !window.Camera) {
-    throw new Error("Scripts MediaPipe non chargés");
-  }
+const MEDIAPIPE_SCRIPTS = ["face_mesh/face_mesh.js", "pose/pose.js", "camera_utils/camera_utils.js"];
 
-  const faceMesh = new window.FaceMesh({ locateFile: (file) => `${MEDIAPIPE_CDN}/face_mesh/${file}` });
-  faceMesh.setOptions({
-    maxNumFaces: 1,
-    refineLandmarks: true,
-    minDetectionConfidence: 0.5,
-    minTrackingConfidence: 0.5,
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = src;
+    script.crossOrigin = "anonymous";
+    script.onload = resolve;
+    script.onerror = () => reject(new Error(`Échec du chargement de ${src}`));
+    document.head.appendChild(script);
   });
-  faceMesh.onResults((results) => onFaceResults(results, state));
+}
 
-  let pose = null;
-  if (window.Pose) {
-    pose = new window.Pose({ locateFile: (file) => `${MEDIAPIPE_CDN}/pose/${file}` });
+function resetPose(state) {
+  state.head.yaw = 0;
+  state.head.pitch = 0;
+  for (const arm of Object.values(state.arms)) {
+    arm.raised = false;
+    arm.elbowBend = 0;
+  }
+}
+
+// Suivi webcam activé à la demande : les scripts et modèles MediaPipe (plusieurs Mo) ne sont
+// téléchargés qu'au premier démarrage, et la caméra est vraiment libérée à l'arrêt.
+export function createTracker(videoElement, state) {
+  let models = null;
+  let camera = null;
+
+  async function loadModels() {
+    if (!window.FaceMesh) await Promise.all(MEDIAPIPE_SCRIPTS.map((f) => loadScript(`${MEDIAPIPE_CDN}/${f}`)));
+
+    const faceMesh = new window.FaceMesh({ locateFile: (file) => `${MEDIAPIPE_CDN}/face_mesh/${file}` });
+    faceMesh.setOptions({
+      maxNumFaces: 1,
+      refineLandmarks: true,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5,
+    });
+    faceMesh.onResults((results) => onFaceResults(results, state));
+
+    const pose = new window.Pose({ locateFile: (file) => `${MEDIAPIPE_CDN}/pose/${file}` });
     pose.setOptions({
       modelComplexity: 1,
       smoothLandmarks: true,
@@ -106,18 +129,42 @@ export async function startTracking(videoElement, state) {
       minTrackingConfidence: 0.5,
     });
     pose.onResults((results) => onPoseResults(results, state));
-  } else {
-    console.warn("MediaPipe Pose introuvable : le suivi des bras est désactivé.");
+
+    return { faceMesh, pose };
   }
 
-  // camera_utils gère getUserMedia et envoie chaque image aux modèles
-  const camera = new window.Camera(videoElement, {
-    onFrame: async () => {
-      await faceMesh.send({ image: videoElement });
-      if (pose) await pose.send({ image: videoElement });
+  return {
+    get active() {
+      return camera !== null;
     },
-    width: 640,
-    height: 480,
-  });
-  await camera.start();
+    async start() {
+      if (camera) return;
+      models ??= await loadModels();
+      // camera_utils gère getUserMedia et envoie chaque image aux modèles
+      const cam = new window.Camera(videoElement, {
+        onFrame: async () => {
+          if (camera !== cam) return;
+          await models.faceMesh.send({ image: videoElement });
+          await models.pose.send({ image: videoElement });
+        },
+        width: 640,
+        height: 480,
+      });
+      camera = cam;
+      try {
+        await cam.start();
+      } catch (err) {
+        camera = null;
+        throw err;
+      }
+    },
+    stop() {
+      if (!camera) return;
+      camera.stop();
+      camera = null;
+      videoElement.srcObject?.getTracks().forEach((track) => track.stop());
+      videoElement.srcObject = null;
+      resetPose(state);
+    },
+  };
 }

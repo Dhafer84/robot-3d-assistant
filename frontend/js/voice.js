@@ -200,5 +200,10 @@ export function createListener({ state, onText, onStatus }) {
       else recognition.stop();
       return listening;
     },
+    stop() {
+      if (!listening) return;
+      listening = false;
+      recognition.stop();
+    },
   };
 }

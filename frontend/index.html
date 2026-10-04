@@ -5,11 +5,11 @@
   <link rel="icon" href="favicon.ico" />
   <title>Dhafer • Robot 3D Assistant</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-
-  <!-- MediaPipe : visage, pose et accès webcam -->
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+  <meta name="description" content="Assistant 3D de Dhafer Bouthelja : pose tes questions sur son parcours et sur Quality Crew." />
+  <!-- Mode intégré (iframe sur un autre site) : activé par ?embed avant l'affichage -->
+  <script>
+    if (new URLSearchParams(location.search).has("embed")) document.documentElement.classList.add("embed");
+  </script>
 
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -45,12 +45,19 @@
       background: radial-gradient(circle at top, #0f172a, #020617);
     }
 
+    /* Aperçu webcam, visible seulement quand le suivi est actif (en miroir, plus naturel) */
     video {
       width: 100%;
       border-radius: 8px;
       border: 1px solid #374151;
       background: black;
+      transform: scaleX(-1);
+      display: none;
     }
+
+    body.tracking video { display: block; }
+
+    #camBtn.active { background: #1d4ed8; color: white; }
 
     /* Fil de discussion */
     #chat {
@@ -195,6 +202,22 @@
       #status { flex-basis: 100%; }
     }
 
+    /* Mode intégré : fenêtre compacte (iframe), scène en haut, conversation en bas */
+    .embed #top { flex-direction: column; }
+    .embed #scene-container { flex: 0 0 46%; min-height: 0; }
+    .embed #side {
+      width: 100%;
+      height: auto;
+      flex: 1;
+      border-left: none;
+      border-top: 1px solid #1f2933;
+    }
+    .embed video { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+    .embed #modeAssistantBtn, .embed #modeMiroirBtn { display: none; }
+    .embed #ui { padding: 8px; gap: 8px; flex-wrap: wrap; }
+    .embed #ui button { padding: 6px 12px; font-size: 0.85rem; }
+    .embed #status { font-size: 0.75rem; flex-basis: 100%; }
+
     #modeAssistantBtn.active,
     #modeMiroirBtn.active {
       background: #4ade80;
@@ -217,6 +240,7 @@
 
   <div id="ui">
     <button id="talkBtn">🎙️ Activer écoute auto</button>
+    <button id="camBtn" title="L'avatar suit les mouvements de ta tête et de tes bras">📷 Activer le suivi</button>
     <button id="modeAssistantBtn">🤖 Assistant</button>
     <button id="modeMiroirBtn">🪞 Miroir</button>
     <div id="status">Prêt.</div>

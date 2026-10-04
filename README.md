@@ -3,9 +3,10 @@
 Un assistant vocal en 3D qui **t'écoute, te répond et imite tes mouvements** grâce à ta webcam.
 
 - 🧑‍💼 **Avatar 3D** (Three.js) : un personnage riggé avec des yeux animés dans ses lunettes, des animations (repos, parole, salut) et des **émotions** (joie, réflexion, surprise, désolé) choisies par l'IA à chaque réponse
-- 👀 **Suivi webcam** (MediaPipe) : l'avatar te regarde, tourne la tête comme toi et lève les bras quand tu lèves les mains
+- 👀 **Suivi webcam à la demande** (MediaPipe) : l'avatar te regarde ; si tu actives le suivi, il tourne la tête comme toi et lève les bras quand tu lèves les mains (tout est calculé dans ton navigateur, rien n'est envoyé)
 - 🎙️ **Voix ou clavier** : tu parles ou tu écris, il répond à voix haute avec une **voix naturelle** ([Piper](https://github.com/OHF-Voice/piper1-gpl), français et anglais), phrase par phrase dès que la réponse arrive ; sa bouche suit le volume réel de la voix
 - 🧠 **IA** : réponses de [Groq](https://groq.com) en streaming, avec mémoire de la conversation
+- 🧩 **Intégrable sur n'importe quel site** : une ligne de code ajoute une bulle d'assistant en bas de page
 - 📇 **Fiche de profil** : l'assistant présente Dhafer, son portfolio et Quality Crew à partir de `backend/profile.md`, sans rien inventer
 
 ## Modes
@@ -34,9 +35,19 @@ Ouvre `backend/.env` et colle ta clé Groq (gratuite sur [console.groq.com/keys]
 npm start
 ```
 
-Puis ouvre [http://localhost:3000](http://localhost:3000), autorise la webcam et le micro, et clique sur **🎙️ Activer écoute auto**.
+Puis ouvre [http://localhost:3000](http://localhost:3000) : écris ta question, ou clique sur **🎙️ Activer écoute auto** pour parler (et **📷 Activer le suivi** pour que l'avatar imite tes mouvements).
 
 Sur macOS, tu peux aussi utiliser `./start_robot.sh` (lance le serveur en arrière-plan et ouvre le navigateur) et `./stop_robot.sh`.
+
+## Intégrer l'assistant sur un site
+
+Ajoute cette ligne avant `</body>` sur le site hôte (en remplaçant l'adresse par celle où l'assistant est hébergé) :
+
+```html
+<script src="https://assistant.qualitycrew.fr/embed.js" defer></script>
+```
+
+Un bouton rond avec l'avatar apparaît en bas à droite ; au clic, l'assistant s'ouvre dans une bulle (en plein écran sur mobile). Il n'est chargé qu'au premier clic, pour ne pas ralentir le site, et se tait quand on ferme la bulle. Options : `data-position="left"` pour le placer à gauche, `data-label="…"` pour changer l'infobulle. Démo locale : [http://localhost:3000/demo-integration.html](http://localhost:3000/demo-integration.html).
 
 ## Voix naturelle (facultatif)
 
@@ -55,6 +66,8 @@ Le ton et les règles de réponse (langue, longueur, pas d'emojis car tout est l
 | `GROQ_API_KEY` | — | Clé API Groq (obligatoire) |
 | `GROQ_MODEL` | `openai/gpt-oss-20b` | Modèle utilisé pour les réponses |
 | `PORT` | `3000` | Port du serveur |
+| `CHAT_LIMIT_PER_MINUTE` | `10` | Questions par minute et par visiteur (protège le quota Groq) |
+| `TTS_LIMIT_PER_MINUTE` | `60` | Phrases lues par minute et par visiteur |
 | `TTS_VOICE_FR` | `fr_FR-tom-medium` | Voix Piper française (`modele` ou `modele:locuteur`) |
 | `TTS_VOICE_EN` | `en_US-ryan-high` | Voix Piper anglaise |
 | `TTS_SPEED` | `1.0` | Vitesse de la voix |
@@ -68,7 +81,9 @@ backend/
 tts/
   server.py        Serveur de voix Piper (lancé par server.js), POST /synthesize → WAV
 frontend/
-  index.html       Interface
+  index.html       Interface (?embed : version compacte pour la bulle)
+  embed.js         Script d'intégration sur un autre site (bouton + bulle)
+  demo-integration.html  Page de démonstration de la bulle
   js/main.js       Point d'entrée : relie tous les modules
   js/scene.js      Scène Three.js (caméra, lumières, rendu)
   js/avatars.js    Chargement et animation de l'avatar GLB (squelette Mixamo)
