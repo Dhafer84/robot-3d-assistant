@@ -86,7 +86,12 @@ startTracking(videoElement, state)
 
 // ====== Conversation (clavier et voix) ======
 const speaker = createSpeaker(state);
-const chat = createChat({ listEl: chatListEl, speaker, onStatus: setStatus });
+const chat = createChat({ listEl: chatListEl, speaker, state, onStatus: setStatus });
+
+// Le navigateur n'autorise le son qu'après une action de l'utilisateur
+for (const type of ["pointerdown", "keydown"]) {
+  document.addEventListener(type, () => speaker.unlock(), { capture: true });
+}
 
 function handleText(text) {
   if (state.mode === "miroir") chat.echo(text);

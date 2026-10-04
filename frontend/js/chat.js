@@ -9,7 +9,12 @@ const MIN_SENTENCE_LENGTH = 25; // évite de lire des bouts de phrase trop court
 // Fin de phrase : ponctuation forte suivie d'un espace ou d'un retour à la ligne
 const SENTENCE_END = /[.!?…;:]+["»)]?\s+|\n+/g;
 
-export function createChat({ listEl, speaker, onStatus }) {
+// L'IA commence sa réponse par une balise d'émotion, ex. "<joie> Avec plaisir !"
+const EMOTIONS = ["neutre", "joie", "reflexion", "surprise", "desole"];
+const LEADING_TAG = /^\s*<(\w+)>\s*/;
+const ANY_TAG = new RegExp(`<(${EMOTIONS.join("|")})>\\s*`, "g");
+
+export function createChat({ listEl, speaker, state, onStatus }) {
   const history = [];
   let controller = null; // requête en cours, annulée si une nouvelle question arrive
 
@@ -53,7 +58,11 @@ export function createChat({ listEl, speaker, onStatus }) {
     const bubble = addBubble("assistant", "…");
     bubble.classList.add("pending");
     onStatus("Je réfléchis… 🤔");
+    state.thinking = true;
 
+    let raw = ""; // texte reçu, balise d'émotion comprise
+    let tagRead = false;
+    let emotion = "neutre";
     let answer = "";
     let unspoken = "";
     try {
@@ -65,10 +74,13 @@ export function createChat({ listEl, speaker, onStatus }) {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
+        state.thinking = false;
         if (res.status === 429 && data.error) {
           // Trop de questions d'un coup (limite du compte IA gratuit) : l'avatar le dit
           bubble.classList.remove("pending");
           bubble.textContent = data.error;
+          state.emotion = "desole";
+          state.emotionAt = performance.now() / 1000;
           speaker.say(data.error);
           history.pop(); // la question pourra être reposée telle quelle
           onStatus("Limite de questions atteinte, réessaie dans un instant.");
@@ -79,7 +91,28 @@ export function createChat({ listEl, speaker, onStatus }) {
 
       const decoder = new TextDecoder();
       for await (const chunk of res.body) {
-        const text = decoder.decode(chunk, { stream: true });
+        raw += decoder.decode(chunk, { stream: true });
+
+        // Balise d'émotion en tête : on attend de l'avoir reçue en entier avant d'afficher
+        if (!tagRead) {
+          const match = raw.match(LEADING_TAG);
+          if (match) {
+            if (EMOTIONS.includes(match[1])) emotion = match[1];
+            raw = raw.slice(match[0].length);
+            tagRead = true;
+          } else if (!raw.trimStart().startsWith("<") || raw.length > 20) {
+            tagRead = true; // pas de balise : on affiche tel quel
+          } else {
+            continue;
+          }
+          state.emotion = emotion;
+          state.emotionAt = performance.now() / 1000;
+          state.thinking = false;
+        }
+
+        const text = raw.replace(ANY_TAG, "");
+        raw = "";
+        if (!text) continue;
         answer += text;
         unspoken += text;
         bubble.textContent = answer;
@@ -90,12 +123,22 @@ export function createChat({ listEl, speaker, onStatus }) {
         sentences.forEach((s) => speaker.say(s));
         unspoken = rest;
       }
+      // Réponse très courte sans balise complète : on l'affiche telle quelle
+      if (!tagRead && raw.trim()) {
+        answer = raw.replace(ANY_TAG, "");
+        unspoken = answer;
+        bubble.textContent = answer;
+        bubble.classList.remove("pending");
+      }
+      state.thinking = false;
       if (unspoken.trim()) speaker.say(unspoken);
       if (!answer.trim()) throw new Error("Réponse vide.");
 
-      remember("assistant", answer);
+      // La balise est gardée dans l'historique pour que l'IA conserve ce format
+      remember("assistant", `<${emotion}> ${answer}`);
       onStatus("Prêt.");
     } catch (err) {
+      state.thinking = false;
       if (signal.aborted) {
         // Réponse interrompue : on garde ce qui a déjà été dit dans l'historique
         if (answer.trim()) remember("assistant", answer);

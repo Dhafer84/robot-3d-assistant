@@ -18,3 +18,8 @@ assets/reference/*.glb
 assets/mixamo/
 assets/blender/*.blend
 assets/blender/*.blend1
+
+# Voix Piper : environnement Python et modèles (téléchargeables, voir tts/README.md)
+tts/.venv/
+tts/voices/
+tts/echantillons/

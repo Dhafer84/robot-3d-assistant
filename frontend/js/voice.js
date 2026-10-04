@@ -1,4 +1,4 @@
-// voice.js — reconnaissance vocale et synthèse vocale (Web Speech API).
+// voice.js — reconnaissance vocale (Web Speech API) et synthèse vocale (Piper, ou voix du navigateur).
 
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -16,41 +16,143 @@ export function cleanForSpeech(text) {
     .trim();
 }
 
-// File de phrases à prononcer : la réponse peut être lue phrase par phrase,
-// au fur et à mesure qu'elle arrive. state.isSpeaking reste vrai tant que la file n'est pas vide.
-export function createSpeaker(state) {
-  let pending = 0;
-  let generation = 0; // ignore les événements des phrases annulées
+// Langue d'une phrase, pour choisir la voix : arabe (alphabet), anglais ou français (mots fréquents)
+const ENGLISH_WORDS = /\b(the|and|is|are|you|your|he|his|with|for|of|to|this|that|what|it|in|on|can|has)\b/gi;
+const FRENCH_WORDS = /\b(le|la|les|et|est|sont|vous|tu|il|son|sa|ses|avec|pour|de|des|du|une|un|que|qui|ce|dans|sur)\b/gi;
 
-  function done(gen) {
-    if (gen !== generation) return;
-    pending = Math.max(0, pending - 1);
-    if (pending === 0) state.isSpeaking = false;
+export function detectLang(text) {
+  if (/[؀-ۿ]/.test(text)) return "ar";
+  const en = (text.match(ENGLISH_WORDS) || []).length;
+  const fr = (text.match(FRENCH_WORDS) || []).length + (/[éèêàùçôîû]/i.test(text) ? 2 : 0);
+  return en > fr ? "en" : "fr";
+}
+
+const BROWSER_LANGS = { fr: "fr-FR", en: "en-US", ar: "ar-SA" };
+const PIPER_RETRY_DELAY = 30000; // ms avant de réessayer Piper après un échec
+
+// File de phrases à prononcer, lues au fur et à mesure que la réponse arrive.
+// Chaque phrase est synthétisée par Piper sur le serveur (voix naturelle) dès qu'elle est
+// ajoutée, puis jouée dans l'ordre ; le volume du son anime la bouche (state.voiceLevel).
+// Si Piper est indisponible (ou pour l'arabe), on utilise la voix du navigateur.
+// state.isSpeaking reste vrai tant que la file n'est pas vide.
+export function createSpeaker(state) {
+  let ctx = null;
+  let analyser = null;
+  let samples = null;
+  let queue = [];
+  let playing = false;
+  let generation = 0; // les phrases d'une réponse annulée sont ignorées
+  let source = null;
+  let piperRetryAt = 0;
+
+  function audioContext() {
+    if (!ctx) {
+      ctx = new AudioContext();
+      analyser = ctx.createAnalyser();
+      analyser.fftSize = 1024;
+      analyser.connect(ctx.destination);
+      samples = new Float32Array(analyser.fftSize);
+    }
+    return ctx;
+  }
+
+  async function synthesize(text, lang) {
+    if (lang === "ar" || Date.now() < piperRetryAt) return null;
+    try {
+      const res = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, lang }),
+      });
+      if (!res.ok) throw new Error(`TTS ${res.status}`);
+      return await audioContext().decodeAudioData(await res.arrayBuffer());
+    } catch (err) {
+      console.warn("Voix Piper indisponible, voix du navigateur utilisée :", err.message);
+      piperRetryAt = Date.now() + PIPER_RETRY_DELAY;
+      return null;
+    }
+  }
+
+  // Joue un son Piper en mesurant son volume à chaque image (lip-sync)
+  function playAudio(buffer) {
+    return new Promise((resolve) => {
+      const node = audioContext().createBufferSource();
+      node.buffer = buffer;
+      node.connect(analyser);
+      node.onended = () => {
+        source = null;
+        state.voiceLevel = 0;
+        resolve();
+      };
+      source = node;
+      state.audioDriven = true;
+      node.start();
+
+      const meter = () => {
+        if (source !== node) return;
+        analyser.getFloatTimeDomainData(samples);
+        let sum = 0;
+        for (const v of samples) sum += v * v;
+        state.voiceLevel = Math.min(1, Math.sqrt(sum / samples.length) * 6);
+        requestAnimationFrame(meter);
+      };
+      meter();
+    });
+  }
+
+  function playBrowserVoice(text, lang) {
+    return new Promise((resolve) => {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = BROWSER_LANGS[lang];
+      state.audioDriven = false;
+      // À chaque mot, la bouche se referme brièvement (voir face.js)
+      utterance.onboundary = () => (state.lastWordAt = performance.now() / 1000);
+      utterance.onend = resolve;
+      utterance.onerror = resolve;
+      speechSynthesis.speak(utterance);
+    });
+  }
+
+  async function playNext() {
+    if (playing) return;
+    const item = queue.shift();
+    if (!item) {
+      state.isSpeaking = false;
+      return;
+    }
+    playing = true;
+    state.isSpeaking = true;
+    const buffer = await item.audio;
+    if (item.generation === generation) {
+      if (buffer) await playAudio(buffer);
+      else await playBrowserVoice(item.text, item.lang);
+    }
+    playing = false;
+    playNext();
   }
 
   return {
     say(text) {
       const clean = cleanForSpeech(text);
       if (!clean) return;
-      const gen = generation;
-      const utterance = new SpeechSynthesisUtterance(clean);
-      utterance.lang = "fr-FR";
-      utterance.onstart = () => {
-        if (gen === generation) state.isSpeaking = true;
-      };
-      // À chaque mot, la bouche se referme brièvement (voir face.js)
-      utterance.onboundary = () => (state.lastWordAt = performance.now() / 1000);
-      utterance.onend = () => done(gen);
-      utterance.onerror = () => done(gen);
-      pending++;
-      speechSynthesis.speak(utterance);
+      const lang = detectLang(clean);
+      // La synthèse démarre tout de suite, pendant que la phrase précédente est lue
+      queue.push({ text: clean, lang, generation, audio: synthesize(clean, lang) });
+      state.isSpeaking = true;
+      playNext();
     },
     // Coupe la parole immédiatement (nouvelle question)
     stop() {
       generation++;
-      pending = 0;
-      state.isSpeaking = false;
+      queue = [];
+      source?.stop();
       speechSynthesis.cancel();
+      state.isSpeaking = false;
+      state.voiceLevel = 0;
+    },
+    // Le navigateur n'autorise le son qu'après une action de l'utilisateur (clic, touche)
+    unlock() {
+      audioContext().resume();
     },
   };
 }

@@ -2,6 +2,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const { spawn } = require("child_process");
 const express = require("express");
 const dotenv = require("dotenv");
 
@@ -13,6 +14,13 @@ const GROQ_MODEL = process.env.GROQ_MODEL || "openai/gpt-oss-20b";
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 const FRONTEND_DIR = path.join(__dirname, "..", "frontend");
 const PROFILE_PATH = path.join(__dirname, "profile.md");
+
+// Synthèse vocale Piper (tts/server.py), lancée par ce serveur si elle est installée
+const TTS_DIR = path.join(__dirname, "..", "tts");
+const TTS_PYTHON = path.join(TTS_DIR, ".venv", "bin", "python");
+const TTS_PORT = Number(process.env.TTS_PORT) || 5005;
+const TTS_URL = `http://127.0.0.1:${TTS_PORT}`;
+const MAX_TTS_LENGTH = 600;
 
 const MAX_MESSAGE_LENGTH = 2000;
 const MAX_HISTORY = 10; // messages (questions + réponses) envoyés à l'IA
@@ -29,7 +37,7 @@ const SECTION_KEYWORDS = {
   Parcours: /exp[ée]rien|parcours|carri[èe]re|poste|travail|emploi|job|actia|cipi|volvo|scania|continental|jaguar|entreprise|r[ôo]le|manag|team|[ée]quipe|aspice|audit|usine|ann[ée]e|work|career|company/,
   "Compétences": /comp[ée]ten|sait|ma[îi]tris|skill|technolog|norme|iso|iatf|python|power ?bi|fmea|amdec|8d|misra|ldra|coverity|kubernetes|cloud|devops/,
   Formation: /formation|dipl[ôo]m|[ée]tud|[ée]cole|ing[ée]nieur|certif|esprit|iset|universit|degree|study|educat/,
-  "Quality Crew": /quality ?crew|site|outil|d[ée]mo|agent|ia|ai|intelligen|llm|hara|tara|asil|8d|sentinel|safety|threat|regwatch|cause|crewai|github|tool|projet|project/,
+  "Quality Crew": /quality ?crew|site|outil|d[ée]mo|agent|\bia\b|\bai\b|intelligen|llm|hara|tara|asil|8d|sentinel|safety|threat|regwatch|cause|crewai|github|tool|projet|project/,
   "Autres projets": /projet|portfolio|robot|avatar|3d|assistant|qui es|who are|toi-m[êe]me|comment (tu )?(es|as)|project/,
 };
 
@@ -40,6 +48,7 @@ Style :
 - Sois bref : 1 à 3 phrases courtes, 4 au maximum si la question le demande vraiment.
 - Tes réponses sont lues à voix haute : pas de markdown, pas de listes, pas d'emojis, pas d'URL à rallonge (dis plutôt "sur son site" ou "sur LinkedIn").
 - Ne te présentes que si on te salue ou si on te demande qui tu es.
+- Commence TOUJOURS ta réponse par une seule balise d'émotion, choisie parmi : <joie>, <reflexion>, <surprise>, <desole>, <neutre>. Exemple : "<joie> Avec plaisir ! …". Elle n'est pas lue à voix haute : elle règle l'expression de ton avatar. <joie> pour un salut ou une bonne nouvelle, <reflexion> pour une explication technique, <surprise> pour une question inattendue, <desole> quand tu ne sais pas ou refuses, <neutre> sinon.
 
 Faits :
 - Tout ce que tu sais sur Dhafer, ses projets et Quality Crew vient de la fiche de profil ci-dessous. N'invente jamais d'information (expérience, client, tarif, chiffre, date) qui n'y figure pas.
@@ -190,6 +199,47 @@ app.post("/api/chat", async (req, res) => {
   }
 });
 
+// Synthèse vocale : renvoie un WAV pour une phrase. En cas d'échec (Piper non installé
+// ou encore en démarrage), le navigateur se rabat sur sa propre voix.
+app.post("/api/tts", async (req, res) => {
+  const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
+  const lang = req.body?.lang === "en" ? "en" : "fr";
+  if (!text || text.length > MAX_TTS_LENGTH) return res.status(400).json({ error: "Texte invalide." });
+
+  try {
+    const response = await fetch(`${TTS_URL}/synthesize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, lang }),
+    });
+    if (!response.ok) throw new Error(`TTS ${response.status}`);
+    res.setHeader("Content-Type", "audio/wav");
+    res.send(Buffer.from(await response.arrayBuffer()));
+  } catch {
+    res.status(503).json({ error: "Synthèse vocale indisponible." });
+  }
+});
+
+function startTtsServer() {
+  if (!fs.existsSync(TTS_PYTHON)) {
+    console.warn("ℹ️  Piper non installé (voir tts/README.md) : le navigateur utilisera sa propre voix.");
+    return;
+  }
+  const tts = spawn(TTS_PYTHON, [path.join(TTS_DIR, "server.py")], {
+    env: { ...process.env, TTS_PORT: String(TTS_PORT), PYTHONUNBUFFERED: "1" },
+    stdio: ["ignore", "inherit", "inherit"],
+  });
+  tts.on("exit", (code) => code && console.warn(`⚠️  Serveur de voix arrêté (code ${code})`));
+  // Le serveur de voix s'arrête avec celui-ci
+  for (const signal of ["SIGINT", "SIGTERM"]) {
+    process.on(signal, () => {
+      tts.kill();
+      process.exit(0);
+    });
+  }
+}
+
 app.listen(PORT, () => {
   console.log(`🚀 Robot 3D Assistant disponible sur http://localhost:${PORT} (modèle : ${GROQ_MODEL})`);
+  startTtsServer();
 });

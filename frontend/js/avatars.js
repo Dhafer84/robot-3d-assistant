@@ -110,7 +110,7 @@ export async function loadRiggedAvatar(url) {
   model.traverse((obj) => {
     if (obj.isMesh && obj.morphTargetDictionary?.MouthOpen !== undefined) faceMesh = obj;
   });
-  const lipSync = faceMesh ? createLipSync(faceMesh) : null;
+  const lipSync = faceMesh ? createLipSync(faceMesh, eyes?.expression) : null;
 
   const headYaw = { value: 0 };
   const headPitch = { value: 0 };
@@ -185,12 +185,11 @@ export async function loadRiggedAvatar(url) {
       }
     }
 
-    // 5) Visage : le regard compense la rotation de la tête pour continuer à te regarder
+    // 5) Visage : expression selon l'émotion ; le regard compense la rotation de la tête
     lipSync?.update(dt, state);
-    eyes?.update(dt, {
+    eyes?.update(dt, state, {
       lookX: headYaw.value * 1.5,
       lookY: headPitch.value * 1.5,
-      smile: state.isSpeaking ? 0.15 : 0.3,
     });
   }
 
