@@ -12,3 +12,9 @@ node_modules/
 
 # Fichier PID du serveur
 .robot.pid
+
+# Fichiers de travail 3D lourds (régénérables, voir assets/blender/*.py)
+assets/reference/*.glb
+assets/mixamo/
+assets/blender/*.blend
+assets/blender/*.blend1

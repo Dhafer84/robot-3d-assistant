@@ -6,6 +6,7 @@
 export const state = {
   mode: "assistant", // "assistant" | "miroir"
   isSpeaking: false,
+  lastWordAt: 0, // instant (s) du dernier mot prononcé, pour le lip-sync
   head: { yaw: 0, pitch: 0 },
   arms: {
     left: { raised: false, elbowBend: 0 },

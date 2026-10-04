@@ -3,7 +3,7 @@
 import * as THREE from "three";
 import { state } from "./state.js";
 import { createScene } from "./scene.js";
-import { createCubeRobot, loadHumanoid } from "./avatars.js";
+import { loadRiggedAvatar } from "./avatars.js";
 import { startTracking } from "./tracking.js";
 import { isVoiceSupported, createListener, askAssistant, speak } from "./voice.js";
 
@@ -12,7 +12,6 @@ const videoElement = document.getElementById("inputVideo");
 const answerEl = document.getElementById("answer");
 const statusEl = document.getElementById("status");
 const talkBtn = document.getElementById("talkBtn");
-const avatarBtn = document.getElementById("avatarBtn");
 const modeButtons = {
   assistant: document.getElementById("modeAssistantBtn"),
   miroir: document.getElementById("modeMiroirBtn"),
@@ -23,49 +22,36 @@ const setStatus = (text) => (statusEl.textContent = text);
 // ====== Scène et avatars ======
 const { scene, camera, renderer } = createScene(sceneContainer);
 
-const avatars = { robot: createCubeRobot(), humanoid: null };
-scene.add(avatars.robot.root);
+// Cadrage de la caméra, interpolé à chaque image vers celui de l'avatar
+const cameraTarget = new THREE.Vector3(0, 0.95, 0);
+const cameraDirection = new THREE.Vector3(0, 1.0, 4.9).normalize();
+let cameraDistance = 2.1;
 
-let avatarChoice = "humanoid";
-try {
-  avatarChoice = localStorage.getItem("avatar") || avatarChoice;
-} catch {}
-
-function showAvatar(choice) {
-  // Tant que l'humanoïde n'est pas chargé, on affiche le robot
-  avatarChoice = choice;
-  const active = choice === "humanoid" && avatars.humanoid ? "humanoid" : "robot";
-  avatars.robot.root.visible = active === "robot";
-  if (avatars.humanoid) avatars.humanoid.root.visible = active === "humanoid";
-  avatarBtn.textContent = choice === "humanoid" ? "🧍 Humanoïde" : "🤖 Robot";
-  try {
-    localStorage.setItem("avatar", choice);
-  } catch {}
-}
-
-avatarBtn.addEventListener("click", () => {
-  showAvatar(avatarChoice === "humanoid" ? "robot" : "humanoid");
-});
-
-showAvatar(avatarChoice);
-
-loadHumanoid("./models/humanoid.glb")
-  .then((humanoid) => {
-    avatars.humanoid = humanoid;
-    scene.add(humanoid.root);
-    showAvatar(avatarChoice);
+let avatar = null;
+setStatus("Chargement de l'avatar…");
+loadRiggedAvatar("./models/avatar.glb")
+  .then((loaded) => {
+    avatar = loaded;
+    scene.add(avatar.root);
+    avatar.wave();
+    setStatus("Prêt.");
   })
   .catch((err) => {
-    console.error("❌ Erreur chargement humanoid.glb", err);
-    avatarBtn.disabled = true;
+    console.error("❌ Erreur chargement avatar.glb", err);
+    setStatus("Impossible de charger l'avatar 3D.");
   });
 
 const clock = new THREE.Clock();
 renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), 0.1);
-  for (const avatar of Object.values(avatars)) {
-    if (avatar?.root.visible) avatar.update(dt, state);
+  if (avatar) {
+    cameraTarget.lerp(avatar.framing.target, 1 - Math.exp(-4 * dt));
+    cameraDistance = THREE.MathUtils.damp(cameraDistance, avatar.framing.distance, 4, dt);
   }
+  camera.position.copy(cameraTarget).addScaledVector(cameraDirection, cameraDistance);
+  camera.lookAt(cameraTarget);
+  camera.updateMatrixWorld();
+  avatar?.update(dt, state, camera);
   renderer.render(scene, camera);
 });
 

@@ -1,101 +1,46 @@
-// avatars.js — les deux avatars : le robot en cubes et l'humanoïde GLB (Mixamo).
-// Chacun expose { root, update(dt, state) } et lit le même état partagé.
+// avatars.js — chargement et animation de l'avatar GLB riggé (squelette Mixamo).
+// L'avatar expose { root, update(dt, state, camera), wave(), framing } et lit l'état partagé.
 
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
+import { createLensEyes, createLipSync } from "./face.js";
 
-const ARM_RAISE_ANGLE = Math.PI / 3; // ≈ 60°
+const AVATAR_HEIGHT = 2.6;
+const AVATAR_FLOOR_Y = -1.05;
+const ARM_RAISE_ANGLE = (2 * Math.PI) / 3; // ≈ 120° : main au-dessus de l'épaule
+const CLIP_FADE = 0.4; // secondes de fondu entre deux animations
 const SMOOTHING = 10; // plus grand = suit plus vite
+
+// Regard caméra : part de la correction appliquée et angle maximal corrigé
+const LOOK_AT_CAMERA_WEIGHT = 0.9;
+const LOOK_AT_CAMERA_MAX_ANGLE = THREE.MathUtils.degToRad(50);
+
+const DRACO_DECODER_PATH = "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/gltf/";
 
 // Interpolation indépendante du nombre d'images par seconde
 function damp(current, target, dt) {
   return THREE.MathUtils.damp(current, target, SMOOTHING, dt);
 }
 
-// ====== Robot en cubes ======
-export function createCubeRobot() {
-  const root = new THREE.Group();
-
-  const body = new THREE.Mesh(
-    new THREE.BoxGeometry(1.2, 1.5, 0.8),
-    new THREE.MeshStandardMaterial({ color: 0x111827, metalness: 0.3, roughness: 0.5 })
-  );
-  body.position.y = 0.2;
-  root.add(body);
-
-  const head = new THREE.Mesh(
-    new THREE.BoxGeometry(1, 1, 1),
-    new THREE.MeshStandardMaterial({ color: 0xe5e7eb, metalness: 0.4, roughness: 0.3 })
-  );
-  head.position.y = 1.2;
-  body.add(head);
-
-  const mouth = new THREE.Mesh(
-    new THREE.BoxGeometry(0.5, 0.1, 0.05),
-    new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.2, roughness: 0.6 })
-  );
-  mouth.position.set(0, -0.25, 0.51);
-  head.add(mouth);
-
-  const armMaterial = new THREE.MeshStandardMaterial({ color: 0x1f2937, metalness: 0.3, roughness: 0.6 });
-  const upperArmGeometry = new THREE.BoxGeometry(0.3, 0.7, 0.3);
-  const foreArmGeometry = new THREE.BoxGeometry(0.25, 0.7, 0.25);
-
-  // Épaule (pivot) → bras → coude (pivot) → avant-bras
-  function createArm(x) {
-    const shoulder = new THREE.Object3D();
-    shoulder.position.set(x, 0.1, 0);
-    body.add(shoulder);
-
-    const upperArm = new THREE.Mesh(upperArmGeometry, armMaterial);
-    upperArm.position.y = -0.35;
-    shoulder.add(upperArm);
-
-    const elbow = new THREE.Object3D();
-    elbow.position.y = -0.35;
-    upperArm.add(elbow);
-
-    const foreArm = new THREE.Mesh(foreArmGeometry, armMaterial);
-    foreArm.position.y = -0.35;
-    elbow.add(foreArm);
-
-    return { shoulder, elbow };
-  }
-
-  // Miroir : ton bras droit fait bouger le bras côté droit de l'écran
-  const arms = { right: createArm(0.9), left: createArm(-0.9) };
-
-  function update(dt, state) {
-    const t = performance.now() / 1000;
-
-    head.rotation.y = damp(head.rotation.y, -state.head.yaw, dt);
-    head.rotation.x = damp(head.rotation.x, state.head.pitch, dt);
-    head.rotation.z = Math.sin(t) * 0.05;
-
-    mouth.scale.y = state.isSpeaking ? 0.6 + 0.4 * Math.abs(Math.sin(t * 20)) : 1;
-
-    for (const side of ["left", "right"]) {
-      const target = state.arms[side];
-      const arm = arms[side];
-      arm.shoulder.rotation.x = damp(arm.shoulder.rotation.x, target.raised ? -ARM_RAISE_ANGLE : 0, dt);
-      arm.elbow.rotation.x = damp(arm.elbow.rotation.x, target.elbowBend, dt);
-    }
-  }
-
-  return { root, update };
+function createLoader() {
+  const draco = new DRACOLoader();
+  draco.setDecoderPath(DRACO_DECODER_PATH);
+  const loader = new GLTFLoader();
+  loader.setDRACOLoader(draco);
+  return loader;
 }
 
-// ====== Humanoïde GLB ======
-const HUMANOID_HEIGHT = 2.6;
-const HUMANOID_FLOOR_Y = -1.05;
-const HUMANOID_ARM_RAISE_ANGLE = (2 * Math.PI) / 3; // ≈ 120° : main au-dessus de l'épaule
-
-export async function loadHumanoid(url) {
-  const gltf = await new GLTFLoader().loadAsync(url);
+// Charge un avatar GLB riggé. Animations reconnues par leur nom : "Idle", "Talking",
+// "Waving" (sinon la première animation sert d'animation de repos).
+// Si le modèle a des verres "Lens_L"/"Lens_R" et des morph targets "MouthOpen",
+// le visage est animé (yeux dans les verres, lip-sync).
+export async function loadRiggedAvatar(url) {
+  const gltf = await createLoader().loadAsync(url);
   const model = gltf.scene;
 
   // Mise à l'échelle automatique : quelle que soit la taille d'origine du modèle,
-  // il fait HUMANOID_HEIGHT de haut, centré, les pieds sur HUMANOID_FLOOR_Y.
+  // il fait AVATAR_HEIGHT de haut, centré, les pieds sur AVATAR_FLOOR_Y.
   // (calcul sur la pose du squelette : les modèles Mixamo ont une échelle interne)
   model.updateMatrixWorld(true);
   const box = new THREE.Box3();
@@ -106,22 +51,50 @@ export async function loadHumanoid(url) {
   });
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
-  const scale = HUMANOID_HEIGHT / size.y;
+  const scale = AVATAR_HEIGHT / size.y;
   model.scale.setScalar(scale);
-  model.position.set(-center.x * scale, HUMANOID_FLOOR_Y - box.min.y * scale, -center.z * scale);
+  model.position.set(-center.x * scale, AVATAR_FLOOR_Y - box.min.y * scale, -center.z * scale);
 
   const root = new THREE.Group();
   root.add(model);
+  root.updateMatrixWorld(true);
 
-  // Animation de repos fournie avec le modèle
+  // ----- Animations -----
   const mixer = new THREE.AnimationMixer(model);
-  if (gltf.animations.length > 0) {
-    mixer.clipAction(gltf.animations[0]).play();
+  const clip = (name) => gltf.animations.find((c) => c.name === name);
+  const actions = {
+    idle: mixer.clipAction(clip("Idle") || gltf.animations[0]),
+    talking: clip("Talking") ? mixer.clipAction(clip("Talking")) : null,
+    waving: clip("Waving") ? mixer.clipAction(clip("Waving")) : null,
+  };
+  let current = actions.idle;
+  current.play();
+
+  function fadeTo(action) {
+    if (!action || action === current) return;
+    action.reset().fadeIn(CLIP_FADE).play();
+    current.fadeOut(CLIP_FADE);
+    current = action;
   }
 
+  let waveRemaining = 0;
+  function wave(times = 3) {
+    if (!actions.waving) return;
+    waveRemaining = times * actions.waving.getClip().duration;
+    fadeTo(actions.waving);
+  }
+
+  // ----- Squelette -----
   const bone = (name) => model.getObjectByName(name) || model.getObjectByName(name.replace(":", ""));
   const head = bone("mixamorig:Head");
   const neck = bone("mixamorig:Neck");
+
+  // Axe "avant" de la tête dans le repère de l'os, mesuré en pose de repos
+  // (le personnage est alors tourné vers +Z, c'est-à-dire vers la caméra).
+  const headForward = new THREE.Vector3(0, 0, 1);
+  if (head) {
+    headForward.applyQuaternion(head.getWorldQuaternion(new THREE.Quaternion()).invert());
+  }
 
   // Le personnage nous fait face : son bras gauche est à droite de l'écran.
   // Pour l'effet miroir, ton bras droit pilote donc son bras gauche.
@@ -130,6 +103,15 @@ export async function loadHumanoid(url) {
     left: { bone: bone("mixamorig:RightArm"), direction: -1, weight: 0 },
   };
 
+  // ----- Visage -----
+  const lenses = ["Lens_L", "Lens_R"].map((n) => model.getObjectByName(n)).filter(Boolean);
+  const eyes = lenses.length ? createLensEyes(lenses) : null;
+  let faceMesh = null;
+  model.traverse((obj) => {
+    if (obj.isMesh && obj.morphTargetDictionary?.MouthOpen !== undefined) faceMesh = obj;
+  });
+  const lipSync = faceMesh ? createLipSync(faceMesh) : null;
+
   const headYaw = { value: 0 };
   const headPitch = { value: 0 };
   const offset = new THREE.Quaternion();
@@ -137,17 +119,49 @@ export async function loadHumanoid(url) {
   const forwardAxis = new THREE.Vector3(0, 0, 1);
   const localAxis = new THREE.Vector3();
   const parentRotation = new THREE.Quaternion();
+  const headRotation = new THREE.Quaternion();
+  const headPosition = new THREE.Vector3();
+  const currentDir = new THREE.Vector3();
+  const targetDir = new THREE.Vector3();
+  const identity = new THREE.Quaternion();
 
-  function update(dt, state) {
-    // 1) L'animation de repos positionne tout le squelette…
+  // Tourne la tête vers la caméra, par-dessus l'animation (contact visuel)
+  function lookAtCamera(camera) {
+    head.updateWorldMatrix(true, false);
+    head.getWorldQuaternion(headRotation);
+    head.getWorldPosition(headPosition);
+    currentDir.copy(headForward).applyQuaternion(headRotation);
+    targetDir.copy(camera.position).sub(headPosition).normalize();
+
+    offset.setFromUnitVectors(currentDir, targetDir);
+    const angle = 2 * Math.acos(Math.min(1, Math.abs(offset.w)));
+    const weight = LOOK_AT_CAMERA_WEIGHT * Math.min(1, LOOK_AT_CAMERA_MAX_ANGLE / Math.max(angle, 1e-6));
+    offset.slerpQuaternions(identity, offset, weight);
+
+    // Rotation monde → rotation locale de l'os
+    head.parent.getWorldQuaternion(parentRotation);
+    head.quaternion.copy(parentRotation).invert().multiply(offset).multiply(headRotation);
+  }
+
+  function update(dt, state, camera) {
+    // 1) Choix de l'animation : salut > parole > repos
+    if (waveRemaining > 0) {
+      waveRemaining -= dt;
+      if (waveRemaining <= 0) fadeTo(state.isSpeaking && actions.talking ? actions.talking : actions.idle);
+    } else {
+      fadeTo(state.isSpeaking && actions.talking ? actions.talking : actions.idle);
+    }
+
+    // 2) L'animation positionne tout le squelette…
     mixer.update(dt);
 
-    // 2) …puis on ajoute les mouvements suivis par la webcam par-dessus.
+    // 3) …la tête se tourne vers la caméra…
+    if (head && camera) lookAtCamera(camera);
+
+    // 4) …puis on ajoute les mouvements suivis par la webcam par-dessus.
     if (head) {
-      const t = performance.now() / 1000;
-      const speakingNod = state.isSpeaking ? Math.sin(t * 9) * 0.04 : 0;
       headYaw.value = damp(headYaw.value, -state.head.yaw, dt);
-      headPitch.value = damp(headPitch.value, state.head.pitch + speakingNod, dt);
+      headPitch.value = damp(headPitch.value, state.head.pitch, dt);
 
       // La rotation est répartie entre le cou et la tête pour un rendu plus naturel
       euler.set(headPitch.value * 0.5, headYaw.value * 0.5, 0);
@@ -166,11 +180,22 @@ export async function loadHumanoid(url) {
         arm.bone.parent.updateWorldMatrix(true, false);
         arm.bone.parent.getWorldQuaternion(parentRotation);
         localAxis.copy(forwardAxis).applyQuaternion(parentRotation.invert());
-        offset.setFromAxisAngle(localAxis, arm.direction * HUMANOID_ARM_RAISE_ANGLE * arm.weight);
+        offset.setFromAxisAngle(localAxis, arm.direction * ARM_RAISE_ANGLE * arm.weight);
         arm.bone.quaternion.premultiply(offset);
       }
     }
+
+    // 5) Visage : le regard compense la rotation de la tête pour continuer à te regarder
+    lipSync?.update(dt, state);
+    eyes?.update(dt, {
+      lookX: headYaw.value * 1.5,
+      lookY: headPitch.value * 1.5,
+      smile: state.isSpeaking ? 0.15 : 0.3,
+    });
   }
 
-  return { root, update };
+  // Cadrage à mi-corps
+  const framing = { target: new THREE.Vector3(0, 0.95, 0), distance: 2.1 };
+
+  return { root, update, wave, framing };
 }

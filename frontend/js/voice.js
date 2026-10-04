@@ -27,6 +27,8 @@ export function speak(text, state) {
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.lang = "fr-FR";
   utterance.onstart = () => (state.isSpeaking = true);
+  // À chaque mot, la bouche se referme brièvement (voir face.js)
+  utterance.onboundary = () => (state.lastWordAt = performance.now() / 1000);
   utterance.onend = () => (state.isSpeaking = false);
   utterance.onerror = () => (state.isSpeaking = false);
   speechSynthesis.speak(utterance);

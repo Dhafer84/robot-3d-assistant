@@ -14,6 +14,10 @@ const NOSE = 1;
 const LEFT_EAR = 234;
 const RIGHT_EAR = 454;
 
+// Temps (s) pour que la position neutre de la tête s'adapte à ta posture
+const NEUTRAL_ADAPT_SECONDS = 4;
+const neutral = { yaw: 0, pitch: 0, time: 0 };
+
 // Angle du coude (0 = bras tendu), en ignorant les petits angles et borné à ~100°
 function computeElbowBend(shoulder, elbow, wrist) {
   const u = { x: elbow.x - shoulder.x, y: elbow.y - shoulder.y, z: elbow.z - shoulder.z };
@@ -34,12 +38,30 @@ function onFaceResults(results, state) {
   if (!face || face.length <= RIGHT_EAR) return;
 
   const nose = face[NOSE];
-  const earsY = (face[LEFT_EAR].y + face[RIGHT_EAR].y) / 2;
+  const left = face[LEFT_EAR];
+  const right = face[RIGHT_EAR];
+  const earsX = (left.x + right.x) / 2;
+  const earsY = (left.y + right.y) / 2;
+  const earDistance = Math.hypot(right.x - left.x, right.y - left.y);
+  if (earDistance < 1e-3) return;
 
-  // Le mode miroir amplifie les mouvements, le mode assistant les adoucit
-  const gain = state.mode === "miroir" ? 1.2 : 0.5;
-  state.head.yaw = (nose.x - 0.5) * 2 * gain;
-  state.head.pitch = (nose.y - earsY) * 2 * gain;
+  // Rotation de la tête : position du nez par rapport aux oreilles (et non par rapport
+  // au centre de l'image), pour que l'avatar regarde en face même si tu n'es pas centré.
+  const yaw = ((nose.x - earsX) / earDistance) * 2;
+  const pitch = (nose.y - earsY) / earDistance;
+
+  // Position neutre apprise lentement : seuls les mouvements par rapport à ta posture
+  // habituelle sont reproduits, et l'avatar revient regarder en face si tu restes tourné.
+  const now = performance.now() / 1000;
+  const dt = neutral.time ? Math.min(now - neutral.time, 1) : 1;
+  const k = neutral.time ? 1 - Math.exp(-dt / NEUTRAL_ADAPT_SECONDS) : 1;
+  neutral.yaw += (yaw - neutral.yaw) * k;
+  neutral.pitch += (pitch - neutral.pitch) * k;
+  neutral.time = now;
+
+  const gain = state.mode === "miroir" ? 1.2 : 0.5; // miroir amplifie, assistant adoucit
+  state.head.yaw = (yaw - neutral.yaw) * gain;
+  state.head.pitch = (pitch - neutral.pitch) * gain;
 }
 
 function onPoseResults(results, state) {
