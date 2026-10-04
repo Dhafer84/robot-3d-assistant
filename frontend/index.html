@@ -35,7 +35,8 @@
     }
 
     #side {
-      width: 280px;
+      width: 340px;
+      min-height: 0;
       border-left: 1px solid #1f2933;
       padding: 10px;
       display: flex;
@@ -51,17 +52,81 @@
       background: black;
     }
 
-    #answer {
-      margin-top: 8px;
-      font-size: 0.9rem;
-      background: #020617;
-      border-radius: 8px;
-      border: 1px solid #1f2937;
-      padding: 8px;
-      min-height: 60px;
+    /* Fil de discussion */
+    #chat {
+      flex: 1;
+      min-height: 0;
       overflow-y: auto;
-      white-space: pre-wrap;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 4px 2px;
+      font-size: 0.9rem;
+      line-height: 1.4;
     }
+
+    #chat:empty::before {
+      content: "Pose-moi une question à voix haute ou par écrit 👋";
+      color: #6b7280;
+      margin: auto;
+      text-align: center;
+    }
+
+    .bubble {
+      max-width: 88%;
+      padding: 8px 12px;
+      border-radius: 14px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    .bubble.user {
+      align-self: flex-end;
+      background: #1d4ed8;
+      color: #eff6ff;
+      border-bottom-right-radius: 4px;
+    }
+
+    .bubble.assistant {
+      align-self: flex-start;
+      background: #111827;
+      border: 1px solid #1f2937;
+      border-bottom-left-radius: 4px;
+    }
+
+    .bubble.pending { color: #9ca3af; }
+    .bubble.interrupted { opacity: 0.6; }
+    .bubble.error { border-color: #7f1d1d; color: #fca5a5; }
+
+    #chatForm {
+      display: flex;
+      gap: 6px;
+    }
+
+    #chatInput {
+      flex: 1;
+      min-width: 0;
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid #374151;
+      background: #020617;
+      color: #e5e7eb;
+      font: inherit;
+      font-size: 0.9rem;
+    }
+
+    #chatInput:focus {
+      outline: none;
+      border-color: #3b82f6;
+    }
+
+    #sendBtn {
+      background: #2563eb;
+      color: white;
+      padding: 8px 14px;
+    }
+
+    #sendBtn:hover { background: #3b82f6; }
 
     #ui {
       border-top: 1px solid #1f2937;
@@ -121,11 +186,11 @@
         width: 100%;
         border-left: none;
         border-top: 1px solid #1f2933;
-        flex-direction: row;
-        max-height: 35vh;
+        height: 42vh;
+        flex: none;
       }
-      video { width: 40%; object-fit: cover; }
-      #answer { flex: 1; margin-top: 0; }
+      /* La vidéo reste active pour le suivi, mais on ne l'affiche pas */
+      video { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
       #ui { flex-wrap: wrap; }
       #status { flex-basis: 100%; }
     }
@@ -142,7 +207,11 @@
     <div id="scene-container"></div>
     <div id="side">
       <video id="inputVideo" autoplay muted playsinline></video>
-      <div id="answer">Réponses du robot ici…</div>
+      <div id="chat" aria-live="polite"></div>
+      <form id="chatForm" autocomplete="off">
+        <input id="chatInput" type="text" placeholder="Écris ta question…" maxlength="2000" />
+        <button id="sendBtn" type="submit" aria-label="Envoyer">➤</button>
+      </form>
     </div>
   </div>
 

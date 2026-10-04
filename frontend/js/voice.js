@@ -1,4 +1,4 @@
-// voice.js — reconnaissance vocale (Web Speech API), appel à l'IA et synthèse vocale.
+// voice.js — reconnaissance vocale et synthèse vocale (Web Speech API).
 
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -6,32 +6,53 @@ export function isVoiceSupported() {
   return Boolean(SpeechRecognition);
 }
 
-export async function askAssistant(message) {
-  try {
-    const res = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message }),
-    });
-    const data = await res.json();
-    if (data.answer) return data.answer;
-    if (data.error) return `Erreur : ${data.error}`;
-    return "Réponse inattendue du serveur.";
-  } catch (err) {
-    console.error("Erreur askAssistant :", err);
-    return "Erreur de communication avec le cerveau IA.";
-  }
+// Texte prêt à être lu : sans markdown, emojis ni URL (la voix les épellerait)
+export function cleanForSpeech(text) {
+  return text
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/[*_#`>~|]/g, "")
+    .replace(/\p{Extended_Pictographic}\uFE0F?/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
-export function speak(text, state) {
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = "fr-FR";
-  utterance.onstart = () => (state.isSpeaking = true);
-  // À chaque mot, la bouche se referme brièvement (voir face.js)
-  utterance.onboundary = () => (state.lastWordAt = performance.now() / 1000);
-  utterance.onend = () => (state.isSpeaking = false);
-  utterance.onerror = () => (state.isSpeaking = false);
-  speechSynthesis.speak(utterance);
+// File de phrases à prononcer : la réponse peut être lue phrase par phrase,
+// au fur et à mesure qu'elle arrive. state.isSpeaking reste vrai tant que la file n'est pas vide.
+export function createSpeaker(state) {
+  let pending = 0;
+  let generation = 0; // ignore les événements des phrases annulées
+
+  function done(gen) {
+    if (gen !== generation) return;
+    pending = Math.max(0, pending - 1);
+    if (pending === 0) state.isSpeaking = false;
+  }
+
+  return {
+    say(text) {
+      const clean = cleanForSpeech(text);
+      if (!clean) return;
+      const gen = generation;
+      const utterance = new SpeechSynthesisUtterance(clean);
+      utterance.lang = "fr-FR";
+      utterance.onstart = () => {
+        if (gen === generation) state.isSpeaking = true;
+      };
+      // À chaque mot, la bouche se referme brièvement (voir face.js)
+      utterance.onboundary = () => (state.lastWordAt = performance.now() / 1000);
+      utterance.onend = () => done(gen);
+      utterance.onerror = () => done(gen);
+      pending++;
+      speechSynthesis.speak(utterance);
+    },
+    // Coupe la parole immédiatement (nouvelle question)
+    stop() {
+      generation++;
+      pending = 0;
+      state.isSpeaking = false;
+      speechSynthesis.cancel();
+    },
+  };
 }
 
 // Écoute continue : onText(texte) est appelé pour chaque phrase reconnue.

@@ -1,15 +1,18 @@
-// main.js — point d'entrée : relie la scène 3D, les avatars, la webcam et la voix.
+// main.js — point d'entrée : relie la scène 3D, l'avatar, la webcam, la voix et le chat.
 
 import * as THREE from "three";
 import { state } from "./state.js";
 import { createScene } from "./scene.js";
 import { loadRiggedAvatar } from "./avatars.js";
 import { startTracking } from "./tracking.js";
-import { isVoiceSupported, createListener, askAssistant, speak } from "./voice.js";
+import { isVoiceSupported, createListener, createSpeaker } from "./voice.js";
+import { createChat } from "./chat.js";
 
 const sceneContainer = document.getElementById("scene-container");
 const videoElement = document.getElementById("inputVideo");
-const answerEl = document.getElementById("answer");
+const chatListEl = document.getElementById("chat");
+const chatForm = document.getElementById("chatForm");
+const chatInput = document.getElementById("chatInput");
 const statusEl = document.getElementById("status");
 const talkBtn = document.getElementById("talkBtn");
 const modeButtons = {
@@ -81,29 +84,33 @@ startTracking(videoElement, state)
     setStatus("Erreur caméra ou MediaPipe.");
   });
 
-// ====== Voix ======
-async function handleText(text) {
-  setStatus(`Tu as dit : « ${text} »`);
+// ====== Conversation (clavier et voix) ======
+const speaker = createSpeaker(state);
+const chat = createChat({ listEl: chatListEl, speaker, onStatus: setStatus });
 
-  if (state.mode === "miroir") {
-    answerEl.textContent = `Je répète : ${text}`;
-    speak(text, state);
-    return;
-  }
-
-  answerEl.textContent = "Je réfléchis à ta question… 🤔";
-  const reply = await askAssistant(text);
-  answerEl.textContent = reply;
-  speak(reply, state);
+function handleText(text) {
+  if (state.mode === "miroir") chat.echo(text);
+  else chat.ask(text);
 }
+
+chatForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const text = chatInput.value.trim();
+  if (!text) return;
+  chatInput.value = "";
+  handleText(text);
+});
 
 if (!isVoiceSupported()) {
   talkBtn.disabled = true;
-  setStatus("Reconnaissance vocale non supportée : utilise Chrome ou Edge.");
+  setStatus("Reconnaissance vocale non supportée : utilise Chrome ou Edge (ou écris ta question).");
 } else {
   const listener = createListener({
     state,
-    onText: handleText,
+    onText: (text) => {
+      setStatus(`Tu as dit : « ${text} »`);
+      handleText(text);
+    },
     onStatus: (text, listening) => {
       setStatus(text);
       talkBtn.textContent = listening ? "⏹️ Stop écoute" : "🎙️ Activer écoute auto";
