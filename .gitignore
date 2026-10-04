@@ -1,0 +1,11 @@
+# Dépendances
+node_modules/
+
+# Secrets
+.env
+
+# Logs
+*.log
+
+# macOS
+.DS_Store
