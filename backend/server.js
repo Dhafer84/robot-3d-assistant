@@ -9,6 +9,8 @@ const dotenv = require("dotenv");
 dotenv.config({ path: path.join(__dirname, ".env") });
 
 const PORT = Number(process.env.PORT) || 3000;
+// Écoute en local uniquement par défaut : en production, c'est Nginx qui reçoit les visiteurs
+const HOST = process.env.HOST || "127.0.0.1";
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const GROQ_MODEL = process.env.GROQ_MODEL || "openai/gpt-oss-20b";
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
@@ -277,7 +279,7 @@ function startTtsServer() {
   }
 }
 
-app.listen(PORT, () => {
+app.listen(PORT, HOST, () => {
   console.log(`🚀 Robot 3D Assistant disponible sur http://localhost:${PORT} (modèle : ${GROQ_MODEL})`);
   startTtsServer();
 });

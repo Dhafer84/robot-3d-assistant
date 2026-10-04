@@ -39,6 +39,10 @@ Puis ouvre [http://localhost:3000](http://localhost:3000) : écris ta question, 
 
 Sur macOS, tu peux aussi utiliser `./start_robot.sh` (lance le serveur en arrière-plan et ouvre le navigateur) et `./stop_robot.sh`.
 
+## Mise en ligne
+
+Le guide pas à pas pour le VPS (Nginx, HTTPS, démarrage automatique, mises à jour) est dans [deploy/README.md](deploy/README.md).
+
 ## Intégrer l'assistant sur un site
 
 Ajoute cette ligne avant `</body>` sur le site hôte (en remplaçant l'adresse par celle où l'assistant est hébergé) :
@@ -66,6 +70,7 @@ Le ton et les règles de réponse (langue, longueur, pas d'emojis car tout est l
 | `GROQ_API_KEY` | — | Clé API Groq (obligatoire) |
 | `GROQ_MODEL` | `openai/gpt-oss-20b` | Modèle utilisé pour les réponses |
 | `PORT` | `3000` | Port du serveur |
+| `HOST` | `127.0.0.1` | Adresse d'écoute (`0.0.0.0` pour l'ouvrir sur le réseau local) |
 | `CHAT_LIMIT_PER_MINUTE` | `10` | Questions par minute et par visiteur (protège le quota Groq) |
 | `TTS_LIMIT_PER_MINUTE` | `60` | Phrases lues par minute et par visiteur |
 | `TTS_VOICE_FR` | `fr_FR-tom-medium` | Voix Piper française (`modele` ou `modele:locuteur`) |

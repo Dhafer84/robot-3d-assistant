@@ -1,0 +1,27 @@
+# Service systemd du Robot 3D Assistant (serveur Node + serveur de voix Piper lancé par Node)
+# Installation : voir deploy/README.md
+[Unit]
+Description=Robot 3D Assistant (assistant.qualitycrew.fr)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dhafer
+WorkingDirectory=/home/dhafer/apps/robot-3d-assistant/backend
+ExecStart=/usr/bin/node server.js
+Environment=NODE_ENV=production
+Restart=on-failure
+RestartSec=5
+# Arrête aussi le serveur de voix Python (processus enfant)
+KillMode=control-group
+
+# Sécurité : le service ne peut ni gagner de privilèges ni écrire hors de son dossier
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/dhafer/apps/robot-3d-assistant
+
+[Install]
+WantedBy=multi-user.target
