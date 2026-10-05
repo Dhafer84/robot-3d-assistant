@@ -160,7 +160,15 @@ app.use(express.json({ limit: "100kb" }));
 
 // Frontend (index.html, js/, models/…) servi sur la même origine que l'API
 serveVendor(app); // Three.js, Draco, MediaPipe depuis node_modules (voir security.js)
-app.use(express.static(FRONTEND_DIR));
+app.use(
+  express.static(FRONTEND_DIR, {
+    // Nginx compresse le modèle 3D à la volée (sans Content-Length) : X-File-Size donne sa
+    // taille au chargeur de Three.js, pour une barre de progression en pourcentage.
+    setHeaders(res, filePath, stat) {
+      if (filePath.endsWith(".glb")) res.setHeader("X-File-Size", String(stat.size));
+    },
+  })
+);
 
 // Répond en texte brut, envoyé morceau par morceau au fil de la génération
 const chatLimit = rateLimit(

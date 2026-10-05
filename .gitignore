@@ -23,3 +23,6 @@ assets/blender/*.blend1
 tts/.venv/
 tts/voices/
 tts/echantillons/
+
+# Notes de projet pour Claude (privées, comme dans CrewAI)
+CLAUDE.md

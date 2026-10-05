@@ -34,10 +34,13 @@ function createLoader() {
 
 // Charge un avatar GLB riggé. Animations reconnues par leur nom : "Idle", "Talking",
 // "Waving" (sinon la première animation sert d'animation de repos).
+// onProgress(fraction) est appelé pendant le téléchargement (fraction entre 0 et 1).
 // Si le modèle a des verres "Lens_L"/"Lens_R" et des morph targets "MouthOpen",
 // le visage est animé (yeux dans les verres, lip-sync).
-export async function loadRiggedAvatar(url) {
-  const gltf = await createLoader().loadAsync(url);
+export async function loadRiggedAvatar(url, onProgress) {
+  const gltf = await createLoader().loadAsync(url, (event) => {
+    if (event.total) onProgress?.(Math.min(event.loaded / event.total, 1));
+  });
   const model = gltf.scene;
 
   // Mise à l'échelle automatique : quelle que soit la taille d'origine du modèle,

@@ -37,16 +37,30 @@ const cameraDirection = new THREE.Vector3(0, 1.0, 4.9).normalize();
 let cameraDistance = 2.1;
 
 let avatar = null;
+// Indicateur de chargement : le modèle 3D (~2,5 Mo) prend quelques secondes sur mobile
+const loaderEl = document.getElementById("loader");
+const loaderBar = loaderEl.querySelector(".loader-bar span");
+const loaderText = loaderEl.querySelector("p");
+
+function showProgress(fraction) {
+  const percent = Math.round(fraction * 100);
+  loaderBar.style.width = `${percent}%`;
+  loaderText.textContent = percent < 100 ? `Chargement de l'assistant… ${percent} %` : "Préparation…";
+}
+
 setStatus("Chargement de l'avatar…");
-loadRiggedAvatar("./models/avatar.glb")
+loadRiggedAvatar("./models/avatar.glb", showProgress)
   .then((loaded) => {
     avatar = loaded;
     scene.add(avatar.root);
     avatar.wave();
+    loaderEl.classList.add("done");
     setStatus("Prêt.");
   })
   .catch((err) => {
     console.error("❌ Erreur chargement avatar.glb", err);
+    loaderEl.classList.add("error");
+    loaderText.textContent = "Impossible de charger l'avatar 3D. Tu peux quand même écrire ta question.";
     setStatus("Impossible de charger l'avatar 3D.");
   });
 
