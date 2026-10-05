@@ -12,6 +12,11 @@ git pull --ff-only
 echo "📦 Dépendances Node…"
 (cd backend && npm ci --omit=dev --silent)
 
+echo "🧪 Tests…"
+# set -e : si un test échoue, on s'arrête AVANT le redémarrage — l'ancienne version
+# continue de tourner.
+(cd backend && npm test --silent)
+
 echo "🔊 Dépendances de la voix…"
 tts/.venv/bin/pip install -q -r tts/requirements.txt
 

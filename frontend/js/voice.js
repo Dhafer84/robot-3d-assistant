@@ -1,30 +1,11 @@
 // voice.js — reconnaissance vocale (Web Speech API) et synthèse vocale (Piper, ou voix du navigateur).
 
+import { cleanForSpeech, detectLang } from "./text.js";
+
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
 export function isVoiceSupported() {
   return Boolean(SpeechRecognition);
-}
-
-// Texte prêt à être lu : sans markdown, emojis ni URL (la voix les épellerait)
-export function cleanForSpeech(text) {
-  return text
-    .replace(/https?:\/\/\S+/g, "")
-    .replace(/[*_#`>~|]/g, "")
-    .replace(/\p{Extended_Pictographic}\uFE0F?/gu, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-// Langue d'une phrase, pour choisir la voix : arabe (alphabet), anglais ou français (mots fréquents)
-const ENGLISH_WORDS = /\b(the|and|is|are|you|your|he|his|with|for|of|to|this|that|what|it|in|on|can|has)\b/gi;
-const FRENCH_WORDS = /\b(le|la|les|et|est|sont|vous|tu|il|son|sa|ses|avec|pour|de|des|du|une|un|que|qui|ce|dans|sur)\b/gi;
-
-export function detectLang(text) {
-  if (/[؀-ۿ]/.test(text)) return "ar";
-  const en = (text.match(ENGLISH_WORDS) || []).length;
-  const fr = (text.match(FRENCH_WORDS) || []).length + (/[éèêàùçôîû]/i.test(text) ? 2 : 0);
-  return en > fr ? "en" : "fr";
 }
 
 const BROWSER_LANGS = { fr: "fr-FR", en: "en-US", ar: "ar-SA" };

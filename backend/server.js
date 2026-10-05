@@ -7,7 +7,7 @@ const express = require("express");
 const dotenv = require("dotenv");
 const { serveVendor, securityHeaders, parseOrigins } = require("./security");
 
-dotenv.config({ path: path.join(__dirname, ".env") });
+dotenv.config({ path: path.join(__dirname, ".env"), quiet: true });
 
 const PORT = Number(process.env.PORT) || 3000;
 // Écoute en local uniquement par défaut : en production, c'est Nginx qui reçoit les visiteurs
@@ -295,7 +295,13 @@ function startTtsServer() {
   }
 }
 
-app.listen(PORT, HOST, () => {
-  console.log(`🚀 Robot 3D Assistant disponible sur http://localhost:${PORT} (modèle : ${GROQ_MODEL})`);
-  startTtsServer();
-});
+// Démarré seulement par `node server.js` : les tests (test/) importent l'application
+// sans ouvrir de port ni lancer la voix.
+if (require.main === module) {
+  app.listen(PORT, HOST, () => {
+    console.log(`🚀 Robot 3D Assistant disponible sur http://localhost:${PORT} (modèle : ${GROQ_MODEL})`);
+    startTtsServer();
+  });
+}
+
+module.exports = { app, validateMessages, parseRetryDelay, buildSystemPrompt, readProfileSections, MAX_HISTORY };

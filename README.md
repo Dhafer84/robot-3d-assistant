@@ -39,6 +39,14 @@ Puis ouvre [http://localhost:3000](http://localhost:3000) : écris ta question, 
 
 Sur macOS, tu peux aussi utiliser `./start_robot.sh` (lance le serveur en arrière-plan et ouvre le navigateur) et `./stop_robot.sh`.
 
+## Tests
+
+```bash
+cd backend && npm test
+```
+
+33 tests (`backend/test/`, `node:test`, aucune dépendance), sans réseau : l'API Groq est simulée. Ils couvrent la conversation (streaming, réflexion du modèle filtrée, sections de la fiche envoyées, limites Groq et par visiteur), les en-têtes de sécurité et la CSP, les fichiers servis sous `/vendor/`, le traitement du texte (balises d'émotion coupées, phrases, langue) et l'absence de données personnelles dans la fiche. Ils tournent à chaque push sur GitHub (`.github/workflows/tests.yml`) et avant chaque redémarrage sur le VPS (`deploy/update.sh`).
+
 ## Sécurité
 
 Les en-têtes sont posés par l'application elle-même (`backend/security.js`), sur toute réponse :
@@ -94,6 +102,7 @@ Le ton et les règles de réponse (langue, longueur, pas d'emojis car tout est l
 backend/
   server.js        Serveur Express : sert le frontend + POST /api/chat (historique → réponse en streaming)
   security.js      En-têtes de sécurité (CSP…) et bibliothèques servies localement (/vendor)
+  test/            Tests (npm test)
   profile.md       Fiche de profil lue par l'assistant
 tts/
   server.py        Serveur de voix Piper (lancé par server.js), POST /synthesize → WAV
@@ -108,6 +117,7 @@ frontend/
   js/tracking.js   Suivi webcam à la demande (pilote l'iframe tracking.html)
   tracking.html    Page isolée du suivi webcam (MediaPipe) + js/tracking-frame.js
   js/chat.js       Conversation : historique, fil de discussion, streaming
+  js/text.js       Balises d'émotion, découpage en phrases, langue (sans navigateur, testé)
   js/voice.js      Reconnaissance vocale ; lecture des phrases (Piper ou voix du navigateur)
   js/state.js      État partagé entre les modules
   models/          Modèle 3D de l'avatar (avatar.glb)

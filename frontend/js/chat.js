@@ -3,47 +3,9 @@
 // La réponse arrive morceau par morceau : elle s'affiche au fil de l'eau et chaque phrase
 // terminée part tout de suite à la synthèse vocale, sans attendre la fin de la réponse.
 
+import { createTagFilter, splitSentences } from "./text.js";
+
 const MAX_HISTORY = 20; // messages conservés et renvoyés à l'IA
-const MIN_SENTENCE_LENGTH = 25; // évite de lire des bouts de phrase trop courts séparément
-
-// Fin de phrase : ponctuation forte suivie d'un espace ou d'un retour à la ligne
-const SENTENCE_END = /[.!?…;:]+["»)]?\s+|\n+/g;
-
-// L'IA commence sa réponse par une balise d'émotion, ex. "<joie> Avec plaisir !"
-// (parfois plus loin dans la réponse, et parfois coupée entre deux morceaux du flux).
-const EMOTIONS = ["neutre", "joie", "reflexion", "surprise", "desole"];
-const TAG = /<\s*([a-zéè]+)\s*>\s*/gi;
-const PARTIAL_TAG_AT_END = /<\s*[a-zéè]*\s*$/i;
-
-// Retire les balises du texte reçu au fil de l'eau ; onEmotion(nom) est appelé pour chacune.
-// Un début de balise en fin de morceau ("<neu") est gardé de côté jusqu'au morceau suivant.
-function createTagFilter(onEmotion) {
-  let held = "";
-  const strip = (text) =>
-    text.replace(TAG, (tag, name) => {
-      name = name.toLowerCase();
-      if (!EMOTIONS.includes(name)) return tag; // pas une balise d'émotion : on garde le texte
-      onEmotion(name);
-      return "";
-    });
-  return {
-    push(chunk) {
-      let text = held + chunk;
-      held = "";
-      const partial = text.match(PARTIAL_TAG_AT_END);
-      if (partial && partial[0].length <= 14) {
-        held = partial[0];
-        text = text.slice(0, partial.index);
-      }
-      return strip(text);
-    },
-    flush() {
-      const text = strip(held);
-      held = "";
-      return text;
-    },
-  };
-}
 
 export function createChat({ listEl, speaker, state, onStatus }) {
   const history = [];
@@ -61,20 +23,6 @@ export function createChat({ listEl, speaker, state, onStatus }) {
   function remember(role, content) {
     history.push({ role, content });
     if (history.length > MAX_HISTORY) history.splice(0, history.length - MAX_HISTORY);
-  }
-
-  // Découpe le texte reçu en phrases complètes ; renvoie [phrases, reste non terminé]
-  function takeSentences(buffer) {
-    const sentences = [];
-    let start = 0;
-    for (const match of buffer.matchAll(SENTENCE_END)) {
-      const end = match.index + match[0].length;
-      if (end - start >= MIN_SENTENCE_LENGTH) {
-        sentences.push(buffer.slice(start, end));
-        start = end;
-      }
-    }
-    return [sentences, buffer.slice(start)];
   }
 
   async function ask(question) {
@@ -117,7 +65,7 @@ export function createChat({ listEl, speaker, state, onStatus }) {
       bubble.classList.remove("pending");
       listEl.scrollTop = listEl.scrollHeight;
 
-      const [sentences, rest] = takeSentences(unspoken);
+      const [sentences, rest] = splitSentences(unspoken);
       sentences.forEach((s) => speaker.say(s));
       unspoken = rest;
     }
