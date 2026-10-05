@@ -5,6 +5,15 @@
 process.env.GROQ_API_KEY = "cle-de-test";
 process.env.TTS_PORT = "9"; // port fermé : la voix est « indisponible »
 process.env.FRAME_ANCESTORS = "https://qualitycrew.fr https://www.qualitycrew.fr";
+const os = require("os");
+const STATS_DIR = require("fs").mkdtempSync(require("path").join(os.tmpdir(), "stats-http-"));
+process.env.STATS_DIR = STATS_DIR;
+
+// Les pannes simulées (Groq en 429, 401…) font écrire le serveur dans la console : sans
+// intérêt ici, et trompeur dans la sortie de deploy/update.sh.
+const quiet = { error: console.error, warn: console.warn };
+console.error = () => {};
+console.warn = () => {};
 
 const { test, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
@@ -51,6 +60,8 @@ before(async () => {
 after(() => {
   server.close();
   globalThis.fetch = realFetch;
+  Object.assign(console, quiet);
+  fs.rmSync(STATS_DIR, { recursive: true, force: true });
 });
 beforeEach(() => {
   groqReplies = [];
@@ -257,3 +268,59 @@ test("modèle 3D : X-File-Size = taille réelle (barre de chargement derrière N
   assert.equal(res.headers.get("x-file-size"), String(size));
   assert.equal((await res.arrayBuffer()).byteLength, size);
 });
+
+// ====== Statistiques ======
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+function statsLines() {
+  return fs
+    .readdirSync(STATS_DIR)
+    .flatMap((f) => fs.readFileSync(path.join(STATS_DIR, f), "utf8").split("\n"))
+    .filter(Boolean);
+}
+
+test("statistiques : question sans réponse gardée, masquée, et jamais d'adresse IP", async () => {
+  const ip = newVisitor();
+  groqReplies.push(
+    () => sse([delta({ content: "<desole> Je ne dispose pas de cette information." })]),
+    () => sse([delta({ content: "<joie> Il a 18 ans d'expérience." })])
+  );
+  await (await chat(ask("Quel est le salaire de Dhafer ? Réponds à paul@exemple.fr"), ip)).text();
+  await (await chat(ask("Quelle est son expérience ?"), ip)).text();
+  await pause(100);
+
+  const lines = statsLines();
+  assert.ok(lines.every((l) => !l.includes(ip) && !/"ip"/i.test(l)), "une adresse IP a été écrite");
+  const questions = lines.map((l) => JSON.parse(l)).filter((e) => e.e === "question");
+  const unanswered = questions.find((e) => e.q?.startsWith("Quel est le salaire"));
+  assert.ok(unanswered, "question sans réponse absente des statistiques");
+  assert.equal(unanswered.q, "Quel est le salaire de Dhafer ? Réponds à [e-mail]");
+  assert.equal(unanswered.answered, false);
+  assert.equal(unanswered.emotion, "desole");
+  assert.equal(unanswered.turn, 1);
+  // Une question à laquelle il a répondu : comptée, mais son texte n'est PAS gardé
+  const answered = questions.filter((e) => e.answered && e.emotion === "joie");
+  assert.ok(answered.length >= 1);
+  assert.ok(answered.every((e) => !("q" in e)));
+});
+
+test("statistiques : vues de la page et de la bulle, robots exclus", async () => {
+  const before = statsLines().length;
+  const get = (url, ua) => realFetch(`${base}${url}`, { headers: { "User-Agent": ua } }).then((r) => r.text());
+  await get("/", "Mozilla/5.0 (iPhone)");
+  await get("/?embed", "Mozilla/5.0 (Android)");
+  await get("/", "Googlebot/2.1");
+  await get("/js/main.js", "Mozilla/5.0"); // un fichier, pas une vue
+  await pause(100);
+  const views = statsLines().slice(before).map((l) => JSON.parse(l)).filter((e) => e.e === "view");
+  assert.deepEqual(views.map((v) => v.embed).sort(), [false, true]);
+});
+
+test("statistiques : la limite par visiteur atteinte est comptée (sans l'IP)", async () => {
+  const ip = newVisitor();
+  for (let i = 0; i < 11; i++) await chat([], ip);
+  await pause(100);
+  const limits = statsLines().map((l) => JSON.parse(l)).filter((e) => e.e === "limit" && e.kind === "visitor-chat");
+  assert.ok(limits.length >= 1);
+  assert.ok(statsLines().every((l) => !l.includes(ip)));
+});
+

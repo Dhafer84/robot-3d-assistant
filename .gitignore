@@ -26,3 +26,6 @@ tts/echantillons/
 
 # Notes de projet pour Claude (privées, comme dans CrewAI)
 CLAUDE.md
+
+# Statistiques d'usage (données de visiteurs, restent sur le serveur)
+backend/data/

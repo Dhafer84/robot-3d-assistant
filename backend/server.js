@@ -6,6 +6,7 @@ const { spawn } = require("child_process");
 const express = require("express");
 const dotenv = require("dotenv");
 const { serveVendor, securityHeaders, parseOrigins } = require("./security");
+const stats = require("./stats");
 
 dotenv.config({ path: path.join(__dirname, ".env"), quiet: true });
 
@@ -125,8 +126,9 @@ if (!GROQ_API_KEY) {
   console.warn("⚠️  GROQ_API_KEY n'est pas définie dans backend/.env (voir .env.example)");
 }
 
-// Limite simple en mémoire : au plus `max` requêtes par minute et par adresse IP
-function rateLimit(max, message) {
+// Limite simple en mémoire : au plus `max` requêtes par minute et par adresse IP.
+// `name` sert aux statistiques (combien de fois la limite a été atteinte, sans l'IP).
+function rateLimit(name, max, message) {
   const hits = new Map(); // ip -> instants (ms) des requêtes de la dernière minute
   setInterval(() => {
     const cutoff = Date.now() - 60_000;
@@ -143,6 +145,7 @@ function rateLimit(max, message) {
     if (times.length >= max) {
       const retryAfter = Math.ceil((times[0] + 60_000 - now) / 1000);
       res.setHeader("Retry-After", retryAfter);
+      stats.record("limit", { kind: name });
       return res.status(429).json({ error: message(retryAfter), retryAfter });
     }
     times.push(now);
@@ -158,6 +161,15 @@ app.disable("x-powered-by");
 app.use(securityHeaders({ frontendDir: FRONTEND_DIR, frameAncestors: FRAME_ANCESTORS }));
 app.use(express.json({ limit: "100kb" }));
 
+// Statistiques : une vue par chargement de la page (bulle ou plein écran), robots exclus
+const BOTS = /bot|crawl|spider|slurp|preview|facebookexternalhit|curl|wget|python|headless/i;
+app.use((req, res, next) => {
+  if (req.method === "GET" && req.path === "/" && !BOTS.test(req.get("user-agent") || "")) {
+    stats.record("view", { embed: "embed" in req.query });
+  }
+  next();
+});
+
 // Frontend (index.html, js/, models/…) servi sur la même origine que l'API
 serveVendor(app); // Three.js, Draco, MediaPipe depuis node_modules (voir security.js)
 app.use(
@@ -170,12 +182,26 @@ app.use(
   })
 );
 
+// Statistiques d'une question terminée. Le texte n'est gardé que si l'assistant n'a pas su
+// répondre (voir stats.js) ; `turn` = rang de la question dans la conversation (1 = nouvelle).
+function recordQuestion(req, messages, answer) {
+  const answered = !stats.isUnanswered(answer);
+  stats.record("question", {
+    embed: /[?&]embed\b/.test(req.get("referer") || ""),
+    turn: messages.filter((m) => m.role === "user").length,
+    emotion: stats.emotionOf(answer),
+    answered,
+    ...(answered ? {} : { q: stats.redact(messages[messages.length - 1].content) }),
+  });
+}
+
 // Répond en texte brut, envoyé morceau par morceau au fil de la génération
 const chatLimit = rateLimit(
+  "visitor-chat",
   CHAT_LIMIT_PER_MINUTE,
   (s) => `Tu poses beaucoup de questions d'un coup ! Laisse-moi souffler ${s} secondes, s'il te plaît.`
 );
-const ttsLimit = rateLimit(TTS_LIMIT_PER_MINUTE, () => "Trop de demandes de voix.");
+const ttsLimit = rateLimit("visitor-tts", TTS_LIMIT_PER_MINUTE, () => "Trop de demandes de voix.");
 
 app.post("/api/chat", chatLimit, async (req, res) => {
   const messages = req.body?.messages;
@@ -217,6 +243,7 @@ app.post("/api/chat", chatLimit, async (req, res) => {
         continue;
       }
       console.error("Limite Groq atteinte :", details);
+      stats.record("limit", { kind: "groq" });
       const seconds = Math.max(1, Math.ceil(wait));
       return res.status(429).json({
         error: `Je reçois beaucoup de questions en ce moment. Repose-moi la tienne dans ${seconds} secondes, s'il te plaît.`,
@@ -226,6 +253,7 @@ app.post("/api/chat", chatLimit, async (req, res) => {
 
     if (!response.ok) {
       console.error("Erreur HTTP Groq :", response.status, await response.text());
+      stats.record("error", { status: response.status });
       return res.status(502).json({ error: "Erreur lors de l'appel à Groq." });
     }
 
@@ -236,6 +264,7 @@ app.post("/api/chat", chatLimit, async (req, res) => {
     // (delta.content), pas la réflexion interne du modèle (delta.reasoning).
     const decoder = new TextDecoder();
     let buffer = "";
+    let answer = "";
     for await (const chunk of response.body) {
       buffer += decoder.decode(chunk, { stream: true });
       const lines = buffer.split("\n");
@@ -243,10 +272,14 @@ app.post("/api/chat", chatLimit, async (req, res) => {
       for (const line of lines) {
         if (!line.startsWith("data: ") || line === "data: [DONE]") continue;
         const text = JSON.parse(line.slice(6)).choices?.[0]?.delta?.content;
-        if (text) res.write(text);
+        if (text) {
+          res.write(text);
+          answer += text;
+        }
       }
     }
     res.end();
+    recordQuestion(req, messages, answer);
   } catch (err) {
     if (err.name === "AbortError") return;
     console.error("Erreur API Groq :", err);
@@ -271,6 +304,7 @@ app.post("/api/tts", ttsLimit, async (req, res) => {
     if (!response.ok) throw new Error(`TTS ${response.status}`);
     res.setHeader("Content-Type", "audio/wav");
     res.send(Buffer.from(await response.arrayBuffer()));
+    stats.record("tts", { lang });
   } catch {
     res.status(503).json({ error: "Synthèse vocale indisponible." });
   }
@@ -301,6 +335,9 @@ if (require.main === module) {
   app.listen(PORT, HOST, () => {
     console.log(`🚀 Robot 3D Assistant disponible sur http://localhost:${PORT} (modèle : ${GROQ_MODEL})`);
     startTtsServer();
+    // Conservation limitée des statistiques : purge au démarrage, puis chaque jour
+    stats.purgeOld();
+    setInterval(() => stats.purgeOld(), 86400000).unref();
   });
 }
 

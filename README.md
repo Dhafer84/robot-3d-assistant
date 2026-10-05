@@ -39,13 +39,23 @@ Puis ouvre [http://localhost:3000](http://localhost:3000) : écris ta question, 
 
 Sur macOS, tu peux aussi utiliser `./start_robot.sh` (lance le serveur en arrière-plan et ouvre le navigateur) et `./stop_robot.sh`.
 
+## Statistiques d'usage
+
+Le serveur tient des statistiques **anonymes** (aucune adresse IP, aucun identifiant de visiteur), un fichier par jour dans `backend/data/stats/`, supprimé au bout de 90 jours : vues de la page et de la bulle (robots exclus), conversations, questions, phrases lues, limites atteintes, erreurs. Le texte d'une question n'est gardé **que si l'assistant n'a pas su répondre** — tronqué, e-mails, numéros et liens masqués — pour savoir quoi ajouter à `profile.md`. Une ligne l'indique aux visiteurs sous la zone de saisie.
+
+```bash
+cd backend && npm run stats          # 30 derniers jours
+npm run stats -- 7                   # 7 derniers jours
+npm run stats -- 90 --toutes         # toutes les questions sans réponse
+```
+
 ## Tests
 
 ```bash
 cd backend && npm test
 ```
 
-33 tests (`backend/test/`, `node:test`, aucune dépendance), sans réseau : l'API Groq est simulée. Ils couvrent la conversation (streaming, réflexion du modèle filtrée, sections de la fiche envoyées, limites Groq et par visiteur), les en-têtes de sécurité et la CSP, les fichiers servis sous `/vendor/`, le traitement du texte (balises d'émotion coupées, phrases, langue) et l'absence de données personnelles dans la fiche. Ils tournent à chaque push sur GitHub (`.github/workflows/tests.yml`) et avant chaque redémarrage sur le VPS (`deploy/update.sh`).
+40 tests (`backend/test/`, `node:test`, aucune dépendance), sans réseau : l'API Groq est simulée. Ils couvrent la conversation (streaming, réflexion du modèle filtrée, sections de la fiche envoyées, limites Groq et par visiteur), les en-têtes de sécurité et la CSP, les fichiers servis sous `/vendor/`, le traitement du texte (balises d'émotion coupées, phrases, langue) les statistiques (aucune IP écrite, masquage, conservation) et l'absence de données personnelles dans la fiche. Ils tournent à chaque push sur GitHub (`.github/workflows/tests.yml`) et avant chaque redémarrage sur le VPS (`deploy/update.sh`).
 
 ## Sécurité
 
@@ -92,6 +102,7 @@ Le ton et les règles de réponse (langue, longueur, pas d'emojis car tout est l
 | `HOST` | `127.0.0.1` | Adresse d'écoute (`0.0.0.0` pour l'ouvrir sur le réseau local) |
 | `CHAT_LIMIT_PER_MINUTE` | `10` | Questions par minute et par visiteur (protège le quota Groq) |
 | `TTS_LIMIT_PER_MINUTE` | `60` | Phrases lues par minute et par visiteur |
+| `STATS_RETENTION_DAYS` | `90` | Durée de conservation des statistiques |
 | `TTS_VOICE_FR` | `fr_FR-tom-medium` | Voix Piper française (`modele` ou `modele:locuteur`) |
 | `TTS_VOICE_EN` | `en_US-ryan-high` | Voix Piper anglaise |
 | `TTS_SPEED` | `1.0` | Vitesse de la voix |
@@ -102,6 +113,7 @@ Le ton et les règles de réponse (langue, longueur, pas d'emojis car tout est l
 backend/
   server.js        Serveur Express : sert le frontend + POST /api/chat (historique → réponse en streaming)
   security.js      En-têtes de sécurité (CSP…) et bibliothèques servies localement (/vendor)
+  stats.js         Statistiques anonymes (data/stats/, 90 jours) ; scripts/stats.js les affiche
   test/            Tests (npm test)
   profile.md       Fiche de profil lue par l'assistant
 tts/

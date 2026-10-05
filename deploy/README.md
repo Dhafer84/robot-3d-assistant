@@ -165,6 +165,16 @@ Après un `git push` sur `main` depuis le Mac :
 ~/apps/robot-3d-assistant/deploy/update.sh
 ```
 
+## Consulter les statistiques
+
+```bash
+cd ~/apps/robot-3d-assistant/backend && npm run stats
+```
+
+`npm run stats -- 7` pour 7 jours, `npm run stats -- 90 --toutes` pour toutes les questions
+sans réponse. Les données restent sur le VPS (`backend/data/stats/`, hors Git, effacées
+au bout de 90 jours).
+
 ## En cas de problème
 
 | Symptôme | Vérification |
