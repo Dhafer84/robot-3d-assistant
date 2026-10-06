@@ -17,6 +17,7 @@ const PIPER_RETRY_DELAY = 30000; // ms avant de réessayer Piper après un éche
 // ajoutée, puis jouée dans l'ordre ; le volume du son anime la bouche (state.voiceLevel).
 // Si Piper est indisponible (ou pour l'arabe), on utilise la voix du navigateur.
 // state.isSpeaking reste vrai tant que la file n'est pas vide.
+// Voix coupée (bouton 🔇, écrans tactiles) : rien n'est lu ni synthétisé (aucune requête).
 export function createSpeaker(state) {
   let ctx = null;
   let analyser = null;
@@ -26,6 +27,7 @@ export function createSpeaker(state) {
   let generation = 0; // les phrases d'une réponse annulée sont ignorées
   let source = null;
   let piperRetryAt = 0;
+  let muted = false;
 
   function audioContext() {
     if (!ctx) {
@@ -115,6 +117,7 @@ export function createSpeaker(state) {
 
   return {
     say(text) {
+      if (muted) return;
       const clean = cleanForSpeech(text);
       if (!clean) return;
       const lang = detectLang(clean);
@@ -131,6 +134,14 @@ export function createSpeaker(state) {
       speechSynthesis.cancel();
       state.isSpeaking = false;
       state.voiceLevel = 0;
+    },
+    get muted() {
+      return muted;
+    },
+    // Couper la voix arrête aussi la phrase en cours
+    setMuted(value) {
+      muted = Boolean(value);
+      if (muted) this.stop();
     },
     // Le navigateur n'autorise le son qu'après une action de l'utilisateur (clic, touche)
     unlock() {

@@ -16,6 +16,10 @@ const chatForm = document.getElementById("chatForm");
 const chatInput = document.getElementById("chatInput");
 const statusEl = document.getElementById("status");
 const talkBtn = document.getElementById("talkBtn");
+const muteBtn = document.getElementById("muteBtn");
+// Téléphones et tablettes : saisie écrite seulement (micro et webcam masqués par le CSS,
+// même requête), réponses lues à voix haute, bouton pour couper la voix. Choix du 06/10/2026.
+const TOUCH = window.matchMedia("(pointer: coarse)").matches;
 const camBtn = document.getElementById("camBtn");
 const modeButtons = {
   assistant: document.getElementById("modeAssistantBtn"),
@@ -168,8 +172,32 @@ function showMicBlocked() {
   if (EMBED) chatInput.focus();
 }
 
+// Voix coupée / remise (bouton 🔊, écrans tactiles) ; gardé pendant la visite
+const MUTE_KEY = "r3d-muted";
+function setMuted(muted) {
+  speaker.setMuted(muted);
+  muteBtn.textContent = muted ? "🔇" : "🔊";
+  muteBtn.setAttribute("aria-pressed", String(muted));
+  muteBtn.setAttribute("aria-label", t(muted ? "unmute" : "mute"));
+  muteBtn.title = t(muted ? "unmute" : "mute");
+  try {
+    sessionStorage.setItem(MUTE_KEY, muted ? "1" : "0");
+  } catch {
+    // stockage bloqué : le réglage vaut pour cette page seulement
+  }
+}
+muteBtn.addEventListener("click", () => setMuted(!speaker.muted));
+try {
+  if (sessionStorage.getItem(MUTE_KEY) === "1") setMuted(true);
+} catch {
+  // idem
+}
+
 let listener = null;
-if (!isVoiceSupported()) {
+if (TOUCH) {
+  // Pas d'écoute sur écran tactile : le micro n'est jamais demandé
+  chatListEl.dataset.empty = t("chatEmptyTouch");
+} else if (!isVoiceSupported()) {
   talkBtn.disabled = true;
   setStatus(t("voiceUnsupported"));
 } else {

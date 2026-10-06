@@ -193,6 +193,19 @@
 
     #sendBtn:hover { background: #3b82f6; }
 
+    /* Couper / remettre la voix : seulement sur écran tactile (voir plus bas) */
+    #muteBtn { display: none; padding: 8px 12px; }
+
+    /* Téléphones et tablettes (écran tactile) : saisie écrite seulement, réponses toujours lues
+       à voix haute (choix du 06/10/2026). Le micro y est souvent bloqué dans la bulle par le
+       navigateur. Plus de micro ni de suivi webcam, un bouton pour couper la voix ; main.js
+       ne crée pas l'écoute (même requête, TOUCH). Les ordinateurs ne changent pas. */
+    @media (pointer: coarse) {
+      #talkBtn, #camBtn { display: none; }
+      #muteBtn { display: inline-block; }
+      .embed #ui { display: none; } /* dans la bulle, il ne restait que le statut */
+    }
+
     #privacyNote {
       font-size: 0.72rem;
       line-height: 1.35;
@@ -314,6 +327,7 @@
       <div id="chat" aria-live="polite" data-empty="Pose-moi une question à voix haute ou par écrit 👋" data-i18n-empty="chatEmpty"></div>
       <form id="chatForm" autocomplete="off">
         <input id="chatInput" type="text" placeholder="Écris ta question…" data-i18n-placeholder="placeholder" maxlength="2000" />
+        <button id="muteBtn" type="button" aria-pressed="false" aria-label="Couper la voix" data-i18n-label="mute" title="Couper la voix" data-i18n-title="mute">🔊</button>
         <button id="sendBtn" type="submit" aria-label="Envoyer" data-i18n-label="send">➤</button>
       </form>
       <p id="privacyNote" data-i18n="privacy">
