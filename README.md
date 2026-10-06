@@ -49,9 +49,13 @@ npm run stats -- 7                   # 7 derniers jours
 npm run stats -- 90 --toutes         # toutes les questions sans réponse
 ```
 
+## Quota Groq
+
+Le compte Groq gratuit limite **chaque modèle** à 8 000 tokens par minute et **200 000 tokens par jour** (fenêtre glissante de 24 h). Une question en coûte environ 2 400 (consignes + extraits utiles de la fiche + historique), soit environ 80 questions par jour et par modèle, tous visiteurs confondus. Quand un modèle atteint sa limite, le serveur le met en pause (au moins 5 minutes pour la limite du jour) et passe au suivant (`GROQ_FALLBACK_MODELS`), sans que le visiteur s'en aperçoive : environ 160 questions par jour avec les deux modèles par défaut. Si tous sont en pause, l'avatar demande de reposer la question plus tard, `/api/health` passe en `panne` et la surveillance alerte. `npm run stats` indique quand le quota du jour a été atteint et combien de réponses sont venues du secours.
+
 ## Surveillance
 
-`GET /api/health` vérifie, sans poser de question à l'IA (aucun quota consommé), que la clé Groq est acceptée et que le modèle est toujours proposé, que la voix Piper répond et que la fiche est lisible. Réponse : `200` `ok`, `200` `degrade` (seule la voix manque : le navigateur lit avec la sienne) ou `503` `panne`, avec la cause (`modèle retiré par Groq`, `clé refusée (401)`…). Le résultat est gardé une minute.
+`GET /api/health` vérifie, sans poser de question à l'IA (aucun quota consommé), que la clé Groq est acceptée et que le modèle est toujours proposé, que la voix Piper répond, que la fiche est lisible et qu'il reste du quota (`quota` : `ok`, `secours (…)` ou `épuisé, reprise dans N min`). Réponse : `200` `ok`, `200` `degrade` (seule la voix manque : le navigateur lit avec la sienne) ou `503` `panne`, avec la cause (`modèle retiré par Groq`, `clé refusée (401)`…). Le résultat est gardé une minute.
 
 L'Action GitHub **Surveillance** (`.github/workflows/surveillance.yml`) l'interroge toutes les 30 minutes, vérifie aussi la page, le modèle 3D, la présence de la bulle sur qualitycrew.fr et la date d'expiration du certificat HTTPS (alerte à 14 jours). En cas d'échec (après un second essai 2 minutes plus tard), GitHub envoie un e-mail. Contrôle immédiat : onglet **Actions → Surveillance → Run workflow**.
 
@@ -63,11 +67,12 @@ curl https://assistant.qualitycrew.fr/api/health
 
 ## Vérifier la justesse des réponses
 
-Les tests simulent l'IA : ils ne disent rien de la justesse des réponses. `npm run eval` pose de vraies questions (dont des erreurs constatées en production) à un serveur lancé et vérifie ce que les réponses doivent dire ou ne jamais dire. Il consomme du quota Groq.
+Les tests simulent l'IA : ils ne disent rien de la justesse des réponses. `npm run eval` pose de vraies questions (dont des erreurs constatées en production) à un serveur lancé et vérifie ce que les réponses doivent dire ou ne jamais dire. ⚠️ Une évaluation complète consomme environ 30 000 tokens, soit 15 % du quota du jour partagé avec les visiteurs : pour vérifier une correction, `--cas` ne lance que les cas dont le nom contient un mot.
 
 ```bash
 cd backend && npm run eval                                   # serveur local
 npm run eval -- https://assistant.qualitycrew.fr             # production
+npm run eval -- --cas anglais                                # seulement les cas « anglais »
 ```
 
 ## Tests
@@ -76,7 +81,7 @@ npm run eval -- https://assistant.qualitycrew.fr             # production
 cd backend && npm test
 ```
 
-55 tests (`backend/test/`, `node:test`, aucune dépendance), sans réseau : l'API Groq est simulée. Ils couvrent la conversation (streaming, réflexion du modèle filtrée, sections de la fiche envoyées, limites Groq et par visiteur), les en-têtes de sécurité et la CSP, les fichiers servis sous `/vendor/`, le contrôle de santé, les deux langues de l'interface (aucun texte manquant ni texte français oublié en dur), le traitement du texte (balises d'émotion coupées, phrases, langue), les statistiques (aucune IP écrite, masquage, conservation) et l'absence de données personnelles dans la fiche. Ils tournent à chaque push sur GitHub (`.github/workflows/tests.yml`) et avant chaque redémarrage sur le VPS (`deploy/update.sh`).
+62 tests (`backend/test/`, `node:test`, aucune dépendance), sans réseau : l'API Groq est simulée. Ils couvrent la conversation (streaming, réflexion du modèle filtrée, sections de la fiche envoyées, limites Groq et par visiteur, bascule vers le modèle de secours), les en-têtes de sécurité et la CSP, les fichiers servis sous `/vendor/`, le contrôle de santé, les deux langues de l'interface (aucun texte manquant ni texte français oublié en dur), le traitement du texte (balises d'émotion coupées, phrases, langue), les statistiques (aucune IP écrite, masquage, conservation) et l'absence de données personnelles dans la fiche. Ils tournent à chaque push sur GitHub (`.github/workflows/tests.yml`) et avant chaque redémarrage sur le VPS (`deploy/update.sh`).
 
 ## Sécurité
 
@@ -122,6 +127,7 @@ Le ton et les règles de réponse (langue, longueur, pas d'emojis car tout est l
 |----------|--------|------|
 | `GROQ_API_KEY` | — | Clé API Groq (obligatoire) |
 | `GROQ_MODEL` | `openai/gpt-oss-20b` | Modèle utilisé pour les réponses |
+| `GROQ_FALLBACK_MODELS` | `openai/gpt-oss-120b` | Modèles de secours, quand le précédent a atteint sa limite (voir « Quota Groq ») |
 | `PORT` | `3000` | Port du serveur |
 | `FRAME_ANCESTORS` | `https://qualitycrew.fr https://www.qualitycrew.fr` | Sites autorisés à afficher l'assistant dans une bulle |
 | `HOST` | `127.0.0.1` | Adresse d'écoute (`0.0.0.0` pour l'ouvrir sur le réseau local) |

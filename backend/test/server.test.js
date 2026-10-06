@@ -20,7 +20,7 @@ const assert = require("node:assert/strict");
 const fs = require("fs");
 const path = require("path");
 
-const { app, MAX_HISTORY, resetHealthCache, writtenInFrenchOrArabic } = require("../server");
+const { app, MAX_HISTORY, resetHealthCache, resetQuota, messageLanguage, parseRetryDelay, GROQ_MODELS } = require("../server");
 const { inlineScriptHashes, NON_PAGE_CSP } = require("../security");
 
 const FRONTEND = path.join(__dirname, "..", "..", "frontend");
@@ -66,6 +66,7 @@ after(() => {
 beforeEach(() => {
   groqReplies = [];
   groqRequests = [];
+  resetQuota(); // aucun modèle en pause d'un test à l'autre
 });
 
 // Chaque test parle depuis une « adresse » différente (X-Forwarded-For, cru venant de
@@ -152,13 +153,68 @@ test("limite Groq courte (ms) : le serveur patiente et réessaie sans rien dire 
   assert.equal(groqRequests.length, 2);
 });
 
-test("limite Groq longue : 429 avec un message à lire et le délai en secondes", async () => {
-  groqReplies.push(() => new Response('{"error":{"message":"Please try again in 1m2.5s."}}', { status: 429 }));
+// ====== Quota : bascule vers le modèle de secours ======
+const tooMany = (msg) => () => new Response(JSON.stringify({ error: { message: msg } }), { status: 429 });
+const DAILY = "Rate limit reached for model `openai/gpt-oss-20b` on tokens per day (TPD): Limit 200000, Used 199005, Requested 2922. Please try again in 13m52.464s.";
+
+test("délai demandé par Groq : ms, s, min et HEURES (limite du jour)", () => {
+  const cas = {
+    "Please try again in 67.5ms.": 0.0675,
+    "try again in 500ms": 0.5,
+    "try again in 11.4s": 11.4,
+    "try again in 1m2.5s": 62.5,
+    "try again in 3m": 180,
+    "try again in 2h5m3.2s": 7503.2, // illisible avant : la pause ne durait que 20 s
+    "pas de délai": 20,
+  };
+  for (const [text, seconds] of Object.entries(cas)) assert.ok(Math.abs(parseRetryDelay(text) - seconds) < 1e-6, text);
+});
+
+test("modèles : gpt-oss-20b puis gpt-oss-120b en secours", () => {
+  assert.deepEqual(GROQ_MODELS, ["openai/gpt-oss-20b", "openai/gpt-oss-120b"]);
+});
+
+test("quota du JOUR atteint : bascule immédiate vers le modèle de secours, sans attente", async () => {
+  groqReplies.push(tooMany(DAILY), () => sse([delta({ content: "<neutre> Réponse du secours" })]));
+  const res = await chat(ask("Bonjour"));
+  assert.equal(res.status, 200);
+  assert.equal(await res.text(), "<neutre> Réponse du secours");
+  assert.deepEqual(groqRequests.map((r) => r.model), ["openai/gpt-oss-20b", "openai/gpt-oss-120b"]);
+  // Même requête pour les deux modèles (seul le modèle change)
+  assert.deepEqual({ ...groqRequests[0], model: 0 }, { ...groqRequests[1], model: 0 });
+
+  // Question suivante : le modèle en pause n'est même pas essayé
+  groqReplies.push(() => sse([delta({ content: "<neutre> Encore le secours" })]));
+  await (await chat(ask("Et ensuite ?"))).text();
+  assert.equal(groqRequests[2].model, "openai/gpt-oss-120b");
+  assert.equal(groqRequests.length, 3);
+
+  // Statistiques : limite du jour (avec le modèle) et réponses du secours
+  await pause(100);
+  const events = statsLines().map((l) => JSON.parse(l));
+  assert.ok(events.some((e) => e.e === "limit" && e.kind === "groq-day" && e.model === "openai/gpt-oss-20b"));
+  assert.ok(events.some((e) => e.e === "question" && e.model === "openai/gpt-oss-120b"));
+});
+
+test("quota du jour presque plein (« try again in 864ms ») : modèle en pause 5 min quand même", async () => {
+  const almost = "Rate limit reached on tokens per day (TPD): Limit 200000, Used 197874, Requested 2128. Please try again in 864ms.";
+  groqReplies.push(tooMany(almost), () => sse([delta({ content: "<neutre> Secours" })]));
+  await (await chat(ask("Bonjour"))).text();
+  groqReplies.push(() => Response.json({ active: true }));
+  const { body } = await health();
+  assert.equal(body.checks.quota, "secours (openai/gpt-oss-20b en pause 5 min)");
+});
+
+test("tous les modèles à leur limite : 429 avec le délai le plus court, puis plus aucun appel", async () => {
+  groqReplies.push(tooMany("Please try again in 1m2.5s."), tooMany(DAILY));
   const res = await chat(ask("Bonjour"));
   assert.equal(res.status, 429);
   const data = await res.json();
-  assert.equal(data.retryAfter, 63);
+  assert.equal(data.retryAfter, 63); // 20b dans 63 s, 120b dans ~14 min
   assert.match(data.error, /63 secondes/);
+  // Tant que les deux sont en pause : réponse immédiate, sans requête à Groq
+  assert.equal((await chat(ask("Bonjour ?"))).status, 429);
+  assert.equal(groqRequests.length, 2);
 });
 
 test("erreur Groq : 502 sans divulguer le détail au visiteur", async () => {
@@ -186,7 +242,8 @@ test("interface anglaise : messages du serveur en anglais, français par défaut
   // Valeur inconnue : français
   assert.equal((await (await chat([], newVisitor(), "de")).json()).error, "La conversation est vide.");
 
-  groqReplies.push(() => new Response('{"error":{"message":"Please try again in 30s."}}', { status: 429 }));
+  // Les deux modèles à leur limite (30 s et 40 s) : délai le plus court
+  groqReplies.push(tooMany("Please try again in 30s."), tooMany("Please try again in 40s."));
   const groq = await (await chat(ask("Hi"), newVisitor(), "en")).json();
   assert.equal(groq.error, "I'm getting a lot of questions right now. Please ask yours again in 30 seconds.");
 
@@ -209,18 +266,34 @@ test("interface anglaise : l'IA est priée de répondre en anglais en cas de dou
   assert.match(fr, /en arabe s'il écrit en arabe, en français sinon\./);
   assert.doesNotMatch(fr, /version anglaise/);
   // …et un rappel en anglais tout à la fin, après la fiche (sinon le français l'emporte)
-  assert.match(en, /--- LANGUAGE ---\nThe visitor is using the English version of the site[^]*answer in English\.$/);
+  assert.match(en, /--- LANGUAGE ---\nThe visitor's last message is in English[^]*answer in English\.$/);
   assert.doesNotMatch(fr, /LANGUAGE/);
   assert.ok(en.startsWith(fr.slice(0, fr.indexOf("Style :")))); // le reste est identique
 });
 
+test("langue du message : français, anglais, arabe ou ambigu", () => {
+  for (const q of ["Quels outils propose Quality Crew ?", "Bonjour", "Où travaille Dhafer ?", "Il a 18 ans ?", "On peut l'essayer ?"]) {
+    assert.equal(messageLanguage(q), "fr", q);
+  }
+  for (const q of ["Does ThreatScope use AI?", "What does SafetyScope do?", "Is the ASIL computed by AI?", "Hi"]) {
+    assert.equal(messageLanguage(q), "en", q);
+  }
+  assert.equal(messageLanguage("مرحبا"), "ar");
+  for (const q of ["QualityCrew ?", "ok", "ISO 26262 ?"]) assert.equal(messageLanguage(q), null, q);
+});
+
+test("interface française : question clairement anglaise → rappel en anglais ; sinon prompt inchangé", async () => {
+  groqReplies.push(
+    () => sse([delta({ content: "<neutre> OK" })]),
+    () => sse([delta({ content: "<neutre> OK" })])
+  );
+  await (await chat(ask("Does ThreatScope use AI?"))).text();
+  await (await chat(ask("QualityCrew ?"))).text();
+  assert.match(groqRequests[0].messages[0].content, /--- LANGUAGE ---/);
+  assert.doesNotMatch(groqRequests[1].messages[0].content, /LANGUAGE/); // ambigu en français : français
+});
+
 test("interface anglaise : une vraie question en français garde une réponse en français (pas de rappel)", async () => {
-  for (const q of ["Quels outils propose Quality Crew ?", "Bonjour", "Où travaille Dhafer ?", "مرحبا"]) {
-    assert.ok(writtenInFrenchOrArabic(q), q);
-  }
-  for (const q of ["QualityCrew ?", "ok", "ISO 26262 ?", "What does SafetyScope do?", "Is the ASIL computed by AI?"]) {
-    assert.ok(!writtenInFrenchOrArabic(q), q);
-  }
   groqReplies.push(() => sse([delta({ content: "<neutre> OK" })]));
   await (await chat(ask("Quels outils propose Quality Crew ?"), newVisitor(), "en")).text();
   assert.doesNotMatch(groqRequests[0].messages[0].content, /LANGUAGE/);
@@ -251,7 +324,7 @@ test("/api/health : IA en service, voix absente → 200 « degrade », sans pose
   groqReplies.push(() => Response.json({ id: "openai/gpt-oss-20b", active: true }));
   const { status, body } = await health();
   assert.equal(status, 200);
-  assert.deepEqual(body, { status: "degrade", checks: { ia: "ok", voix: "voix arrêtée", fiche: "ok" } });
+  assert.deepEqual(body, { status: "degrade", checks: { ia: "ok", voix: "voix arrêtée", fiche: "ok", quota: "ok" } });
   // Fiche du modèle consultée (gratuit), aucune conversation envoyée (quota)
   assert.equal(groqRequests.length, 1);
   assert.match(groqRequests[0].url, /\/openai\/v1\/models\/openai\/gpt-oss-20b$/);
@@ -273,6 +346,24 @@ test("/api/health : modèle retiré (incident du 04/10), clé refusée, Groq inj
     assert.equal(body.checks.ia, expected);
     assert.doesNotMatch(JSON.stringify(body), /gsk_|secret/); // rien de Groq n'est recopié
   }
+});
+
+test("/api/health : quota du jour épuisé sur le principal → secours ; sur tous → « panne » (503, alerte)", async () => {
+  groqReplies.push(tooMany(DAILY), () => sse([delta({ content: "<neutre> OK" })]));
+  await (await chat(ask("Bonjour"))).text();
+  groqReplies.push(() => Response.json({ active: true }));
+  let { body } = await health();
+  assert.match(body.checks.quota, /^secours \(openai\/gpt-oss-20b en pause 14 min\)$/);
+  assert.equal(body.checks.ia, "ok");
+
+  groqReplies.push(tooMany(DAILY));
+  assert.equal((await chat(ask("Encore"))).status, 429);
+  groqReplies.push(() => Response.json({ active: true }));
+  let status;
+  ({ status, body } = await health());
+  assert.equal(status, 503);
+  assert.equal(body.status, "panne");
+  assert.match(body.checks.quota, /^épuisé, reprise dans 14 min$/);
 });
 
 test("/api/health : résultat gardé une minute (un appel répété ne relaie pas vers Groq)", async () => {

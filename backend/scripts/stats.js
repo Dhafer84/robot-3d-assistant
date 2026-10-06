@@ -79,6 +79,15 @@ if (questions.length) {
 }
 const limits = events.filter((e) => e.e === "limit");
 if (limits.length) console.log(`Limites atteintes : ${count(limits, "kind")}`);
+// Quota Groq du JOUR (200 000 tokens par modèle) : quand, et combien de réponses sont venues
+// du modèle de secours (voir GROQ_MODELS dans server.js)
+const daily = limits.filter((e) => e.kind === "groq-day");
+if (daily.length) {
+  const when = [...new Set(daily.map((e) => `${e.t.slice(0, 10)} ${e.t.slice(11, 13)} h (${e.model})`))];
+  console.log(`⚠️  Quota du jour atteint : ${when.slice(-5).join(" · ")} UTC`);
+}
+const fromFallback = questions.filter((q) => q.model).length;
+if (fromFallback) console.log(`Réponses du modèle de secours : ${fromFallback} (${pct(fromFallback, questions.length)})`);
 // Erreurs Groq par cause (401 clé refusée, 404 modèle retiré, exception = injoignable…),
 // avec la dernière date : une panne que personne n'a signalée se voit ici.
 const errors = events.filter((e) => e.e === "error");

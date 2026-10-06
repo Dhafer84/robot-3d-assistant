@@ -15,6 +15,16 @@ const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || "127.0.0.1";
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const GROQ_MODEL = process.env.GROQ_MODEL || "openai/gpt-oss-20b";
+// Modèles de secours, essayés dans l'ordre quand le précédent a atteint sa limite : chez Groq,
+// CHAQUE modèle a son propre quota gratuit (8 000 tokens/min et 200 000 tokens/JOUR, soit
+// ~80 questions/jour). gpt-oss-120b : aussi juste que 20b à npm run eval (15/16), plus lent.
+const GROQ_MODELS = [
+  GROQ_MODEL,
+  ...(process.env.GROQ_FALLBACK_MODELS ?? "openai/gpt-oss-120b")
+    .split(",")
+    .map((m) => m.trim())
+    .filter((m) => m && m !== GROQ_MODEL),
+];
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 // Fiche du modèle : répond sans consommer de quota (sert au contrôle de santé)
 const GROQ_MODEL_URL = `https://api.groq.com/openai/v1/models/${GROQ_MODEL}`;
@@ -39,9 +49,13 @@ const TTS_LIMIT_PER_MINUTE = Number(process.env.TTS_LIMIT_PER_MINUTE) || 60;
 const MAX_MESSAGE_LENGTH = 2000;
 const MAX_HISTORY = 10; // messages (questions + réponses) envoyés à l'IA
 
-// Limite de débit : nombre d'essais et attente maximale (s) faite en silence par le serveur
+// Limite de débit : nombre d'essais et attente maximale (s) faite en silence par le serveur.
+// Au-delà (ou si c'est la limite du JOUR), le modèle est mis en pause et le suivant prend le relais.
 const MAX_RATE_LIMIT_RETRIES = 3;
 const MAX_SILENT_WAIT = 8;
+// Quota du jour presque plein (fenêtre glissante), Groq annonce des attentes de quelques
+// secondes (« 864ms ») : sans pause minimale, chaque question réessaierait le modèle en vain.
+const DAILY_MIN_PAUSE = 300;
 
 // Le compte Groq gratuit est limité en tokens par minute : on n'envoie que les parties
 // de la fiche utiles à la question. Ces sections sont toujours jointes…
@@ -69,12 +83,14 @@ const SECTION_KEYWORDS = {
 // elle-même, et on le rappelle EN ANGLAIS tout à la fin du prompt, après la fiche (en
 // français) : sans ce rappel, « QualityCrew ? » recevait encore une réponse en français.
 // Mais ce rappel l'emporte aussi sur une vraie question en français : il n'est donc ajouté
-// que si le message n'est PAS clairement en français ou en arabe (writtenInFrenchOrArabic).
+// que si le message n'est PAS clairement en français ou en arabe (messageLanguage).
+// Il sert aussi sur l'interface française quand la question est clairement en anglais :
+// « Does ThreatScope use AI? » y recevait parfois une réponse en français (1 fois sur 4).
 const LANG_RULE = "en anglais s'il écrit en anglais, en arabe s'il écrit en arabe, en français sinon.";
 const LANG_RULE_EN =
   "en français s'il écrit en français, en arabe s'il écrit en arabe, en anglais sinon (le visiteur utilise la version anglaise du site), même si son message est ambigu.";
 const ENGLISH_REMINDER =
-  "\n\n--- LANGUAGE ---\nThe visitor is using the English version of the site and their message is in English or ambiguous (a product name, \"ok\"…): answer in English.";
+  "\n\n--- LANGUAGE ---\nThe visitor's last message is in English, or ambiguous (a product name, \"ok\"…) on the English version of the site: answer in English.";
 
 const PERSONA = `Tu es l'assistant personnel de Dhafer Bouthelja. Tu apparais sous la forme d'un avatar 3D à son image, sur son portfolio et sur le site Quality Crew, et tu parles aux visiteurs à voix haute.
 
@@ -124,16 +140,19 @@ const SERVER_TEXTS = {
 };
 const langOf = (req) => (req.body?.lang === "en" ? "en" : "fr");
 
-// Le message est-il clairement en français (mots courants, accents) ou en arabe ?
-// « QualityCrew ? », « ok », « ISO 26262 ? » : non → ambigu.
+// Langue d'un message du visiteur : "fr", "en", "ar", ou null si ambigu (« QualityCrew ? »,
+// « ok », « ISO 26262 ? »). Mots courants et accents ; « a » et « on » exclus de l'anglais
+// (aussi français : « il a », « on peut »).
 const ARABIC_LETTERS = /[؀-ۿ]/;
 const FRENCH_WORDS = /\b(le|la|les|un|une|des|du|de|et|est|sont|que|qui|quoi|quel|quels|quelle|quelles|comment|pourquoi|combien|dans|sur|avec|pour|par|ce|cette|ces|il|elle|vous|tu|je|j|me|mon|ma|mes|ton|ta|tes|son|sa|ses|peux|peut|fait|bonjour|salut|merci|oui|non|propose|parle)\b/gi;
-const ENGLISH_WORDS = /\b(the|a|an|and|is|are|what|who|how|why|which|does|do|can|you|your|he|his|with|for|of|to|this|that|it|in|on|has|hello|hi|thanks|yes|no)\b/gi;
-function writtenInFrenchOrArabic(text) {
-  if (ARABIC_LETTERS.test(text)) return true;
+const ENGLISH_WORDS = /\b(the|an|and|is|are|what|who|how|why|which|does|do|can|you|your|he|his|with|for|of|to|this|that|it|in|has|hello|hi|thanks|yes|no)\b/gi;
+function messageLanguage(text) {
+  if (ARABIC_LETTERS.test(text)) return "ar";
   const fr = (text.match(FRENCH_WORDS) || []).length + (/[éèêàùçôîû]/i.test(text) ? 2 : 0);
   const en = (text.match(ENGLISH_WORDS) || []).length;
-  return fr > 0 && fr > en;
+  if (fr > en) return "fr";
+  if (en > fr) return "en";
+  return null;
 }
 
 // La fiche est relue à chaque question : on peut la modifier sans redémarrer le serveur.
@@ -177,17 +196,18 @@ function buildSystemPrompt(messages, lang = "fr") {
 
   const persona = lang === "en" ? PERSONA.replace(LANG_RULE, LANG_RULE_EN) : PERSONA;
   const lastQuestion = messages.filter((m) => m.role === "user").at(-1)?.content || "";
-  const reminder = lang === "en" && !writtenInFrenchOrArabic(lastQuestion) ? ENGLISH_REMINDER : "";
+  const written = messageLanguage(lastQuestion);
+  const reminder = written === "en" || (lang === "en" && written === null) ? ENGLISH_REMINDER : "";
   return `${persona}\n\n--- FICHE DE PROFIL (extraits utiles à la question) ---\n${selected.map((s) => s.text).join("\n\n")}${reminder}`;
 }
 
-// Délai demandé par Groq, en secondes ("try again in 67.5ms", "11.4s" ou "1m2.5s")
+// Délai demandé par Groq, en secondes ("try again in 67.5ms", "11.4s", "1m2.5s" ou, pour la
+// limite du jour, "2h5m3.2s")
 function parseRetryDelay(details) {
-  const match = details.match(/try again in (?:(\d+)m)?([\d.]+)(ms|s)/);
-  if (!match) return 20;
-  const minutes = Number(match[1] || 0);
-  const value = Number(match[2]);
-  return minutes * 60 + (match[3] === "ms" ? value / 1000 : value);
+  const match = details.match(/try again in (?:(\d+)h)?(?:(\d+)m(?!s))?(?:([\d.]+)(ms|s))?/);
+  if (!match || !match.slice(1, 4).some(Boolean)) return 20;
+  const [hours, minutes, value] = match.slice(1, 4).map((v) => Number(v || 0));
+  return hours * 3600 + minutes * 60 + (match[4] === "ms" ? value / 1000 : value);
 }
 
 // Historique envoyé par le navigateur : [{ role: "user" | "assistant", content }, …]
@@ -265,17 +285,75 @@ app.use(
 
 // Statistiques d'une question terminée. Le texte n'est gardé que si l'assistant n'a pas su
 // répondre (voir stats.js) ; `turn` = rang de la question dans la conversation (1 = nouvelle).
-function recordQuestion(req, messages, answer, lang) {
+function recordQuestion(req, messages, answer, lang, model) {
   const answered = !stats.isUnanswered(answer);
   stats.record("question", {
     embed: /[?&]embed\b/.test(req.get("referer") || ""),
     lang, // langue de l'interface (pas celle de la question)
+    ...(model !== GROQ_MODEL && { model }), // réponse d'un modèle de secours
     turn: messages.filter((m) => m.role === "user").length,
     emotion: stats.emotionOf(answer),
     answered,
     ...(answered ? {} : { q: stats.redact(messages[messages.length - 1].content) }),
   });
 }
+
+// ====== Appel à Groq, avec bascule entre modèles ======
+// exhaustedUntil : modèle -> instant (ms) où il redevient utilisable. Un modèle en pause n'est
+// même pas essayé (pas de requête perdue, pas d'attente pour le visiteur).
+const exhaustedUntil = new Map();
+const isDailyLimit = (details) => /per day|\(TPD\)|\(RPD\)/i.test(details);
+const pausedModels = (now = Date.now()) => GROQ_MODELS.filter((m) => (exhaustedUntil.get(m) || 0) > now);
+
+// Renvoie { response, model } (réponse Groq non 429), ou { retryAfter } (s) si tous les
+// modèles ont atteint leur limite.
+async function callGroq(payload, signal) {
+  for (const model of GROQ_MODELS) {
+    if ((exhaustedUntil.get(model) || 0) > Date.now()) continue;
+    const body = JSON.stringify({ ...payload, model });
+    for (let attempt = 1; ; attempt++) {
+      const response = await fetch(GROQ_URL, {
+        method: "POST",
+        signal,
+        headers: { Authorization: `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" },
+        body,
+      });
+      if (response.status !== 429) return { response, model };
+
+      // Limite par minute courte : on patiente et on réessaie sans que le visiteur ne s'en
+      // aperçoive. Limite du jour, ou attente longue : ce modèle est mis en pause.
+      const details = await response.text();
+      const wait = parseRetryDelay(details);
+      const daily = isDailyLimit(details);
+      if (!daily && attempt < MAX_RATE_LIMIT_RETRIES && wait <= MAX_SILENT_WAIT) {
+        await new Promise((resolve) => setTimeout(resolve, wait * 1000 + 100));
+        continue;
+      }
+      exhaustedUntil.set(model, Date.now() + (daily ? Math.max(wait, DAILY_MIN_PAUSE) : wait) * 1000);
+      console.error(`Limite Groq atteinte (${model}${daily ? ", quota du jour" : ""}) :`, details);
+      stats.record("limit", { kind: daily ? "groq-day" : "groq", model });
+      break;
+    }
+  }
+  const now = Date.now();
+  const soonest = Math.min(...GROQ_MODELS.map((m) => exhaustedUntil.get(m) || now));
+  return { retryAfter: Math.max(1, Math.ceil((soonest - now) / 1000)) };
+}
+
+// État du quota pour /api/health (d'après les dernières réponses de Groq, en mémoire)
+function quotaStatus() {
+  const now = Date.now();
+  const paused = pausedModels(now);
+  const minutes = (m) => Math.ceil((exhaustedUntil.get(m) - now) / 60000);
+  if (!paused.length) return "ok";
+  if (paused.length < GROQ_MODELS.length) {
+    return `secours (${paused.map((m) => `${m} en pause ${minutes(m)} min`).join(", ")})`;
+  }
+  return `épuisé, reprise dans ${Math.min(...paused.map(minutes))} min`;
+}
+
+// resetQuota : pour les tests
+const resetQuota = () => exhaustedUntil.clear();
 
 // Répond en texte brut, envoyé morceau par morceau au fil de la génération
 const chatLimit = rateLimit("visitor-chat", CHAT_LIMIT_PER_MINUTE, (s, lang) => SERVER_TEXTS[lang].visitorLimit(s));
@@ -294,41 +372,17 @@ app.post("/api/chat", chatLimit, async (req, res) => {
   res.on("close", () => upstream.abort());
 
   try {
-    const body = JSON.stringify({
-      model: GROQ_MODEL,
+    const payload = {
       stream: true,
       reasoning_effort: "low",
       messages: [
         { role: "system", content: buildSystemPrompt(messages, lang) },
         ...messages.slice(-MAX_HISTORY).map(({ role, content }) => ({ role, content: content.trim() })),
       ],
-    });
-
-    // Limite du compte gratuit (tokens par minute) : si Groq demande d'attendre peu de
-    // temps, on patiente et on réessaie sans que le visiteur ne s'en aperçoive.
-    let response;
-    for (let attempt = 1; ; attempt++) {
-      response = await fetch(GROQ_URL, {
-        method: "POST",
-        signal: upstream.signal,
-        headers: { Authorization: `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" },
-        body,
-      });
-      if (response.status !== 429) break;
-
-      const details = await response.text();
-      const wait = parseRetryDelay(details);
-      if (attempt < MAX_RATE_LIMIT_RETRIES && wait <= MAX_SILENT_WAIT) {
-        await new Promise((resolve) => setTimeout(resolve, wait * 1000 + 100));
-        continue;
-      }
-      console.error("Limite Groq atteinte :", details);
-      stats.record("limit", { kind: "groq" });
-      const seconds = Math.max(1, Math.ceil(wait));
-      return res.status(429).json({
-        error: texts.groqLimit(seconds),
-        retryAfter: seconds,
-      });
+    };
+    const { response, model, retryAfter } = await callGroq(payload, upstream.signal);
+    if (!response) {
+      return res.status(429).json({ error: texts.groqLimit(retryAfter), retryAfter });
     }
 
     if (!response.ok) {
@@ -359,7 +413,7 @@ app.post("/api/chat", chatLimit, async (req, res) => {
       }
     }
     res.end();
-    recordQuestion(req, messages, answer, lang);
+    recordQuestion(req, messages, answer, lang, model);
   } catch (err) {
     if (err.name === "AbortError") return;
     console.error("Erreur API Groq :", err);
@@ -393,11 +447,12 @@ app.post("/api/tts", ttsLimit, async (req, res) => {
 
 // ====== Santé (surveillance) ======
 // GET /api/health : l'IA est-elle joignable (clé acceptée, modèle toujours proposé par
-// Groq), la voix répond-elle, la fiche est-elle lisible ? Interrogé par une Action GitHub
+// Groq), la voix répond-elle, la fiche est-elle lisible, reste-t-il du quota ? Interrogé par une Action GitHub
 // programmée (.github/workflows/surveillance.yml). Aucune question posée à l'IA : pas de
 // quota consommé. Résultat gardé HEALTH_CACHE_MS, pour qu'un appel répété ne relaie pas
 // chaque fois vers Groq. Réponse : 200 si l'IA marche (« degrade » si seule la voix manque,
-// le navigateur lit alors avec la sienne), 503 sinon. Aucun détail interne exposé.
+// le navigateur lit alors avec la sienne), 503 sinon — y compris quand tous les modèles ont
+// épuisé leur quota. Aucun détail interne exposé.
 const HEALTH_CACHE_MS = 60_000;
 let healthCache = null; // { at, promise }
 
@@ -439,9 +494,15 @@ app.get("/api/health", async (req, res) => {
   if (!healthCache || Date.now() - healthCache.at > HEALTH_CACHE_MS) {
     healthCache = { at: Date.now(), promise: runHealthChecks() };
   }
-  const result = await healthCache.promise;
+  const cached = await healthCache.promise;
+  // Le quota est lu à chaque appel (état en mémoire, gratuit). Tous les modèles épuisés =
+  // plus aucune réponse aux visiteurs → « panne » (503, la surveillance alerte). Un seul
+  // en pause : le secours répond, tout va bien.
+  const quota = quotaStatus();
+  const status = quota.startsWith("épuisé") ? "panne" : cached.status;
+  const result = { status, checks: { ...cached.checks, quota } };
   res.setHeader("Cache-Control", "no-store");
-  res.status(result.status === "panne" ? 503 : 200).json(result);
+  res.status(status === "panne" ? 503 : 200).json(result);
 });
 
 // Lance la voix Piper et la relance si elle s'arrête d'elle-même (plantage, mémoire…).
@@ -488,7 +549,7 @@ function startTtsServer() {
 // sans ouvrir de port ni lancer la voix.
 if (require.main === module) {
   app.listen(PORT, HOST, () => {
-    console.log(`🚀 Robot 3D Assistant disponible sur http://localhost:${PORT} (modèle : ${GROQ_MODEL})`);
+    console.log(`🚀 Robot 3D Assistant disponible sur http://localhost:${PORT} (modèles : ${GROQ_MODELS.join(" puis ")})`);
     startTtsServer();
     // Conservation limitée des statistiques : purge au démarrage, puis chaque jour
     stats.purgeOld();
@@ -505,7 +566,9 @@ module.exports = {
   parseRetryDelay,
   buildSystemPrompt,
   readProfileSections,
-  writtenInFrenchOrArabic,
+  messageLanguage,
+  GROQ_MODELS,
   resetHealthCache,
+  resetQuota,
   MAX_HISTORY,
 };

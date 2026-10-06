@@ -5,12 +5,19 @@
 //
 //   npm run eval                                   serveur local (http://localhost:3000)
 //   npm run eval -- https://assistant.qualitycrew.fr
+//   npm run eval -- --cas anglais                  seulement les cas dont le nom contient « anglais »
+//
+// ⚠️ Quota Groq gratuit : 200 000 tokens par JOUR et par modèle, partagé avec les visiteurs.
+// Une évaluation complète en consomme ~30 000 : préférer --cas pour vérifier une correction.
 //
 // Chaque cas : une conversation (questions du visiteur, posées dans l'ordre avec les vraies
 // réponses en historique), puis des motifs que la DERNIÈRE réponse doit contenir (must) ou
 // ne jamais contenir (never). Ajouter ici chaque erreur constatée en production.
 
-const BASE = (process.argv[2] || "http://localhost:3000").replace(/\/$/, "");
+const args = process.argv.slice(2);
+const casIndex = args.indexOf("--cas");
+const FILTER = casIndex >= 0 ? args.splice(casIndex, 2)[1]?.toLowerCase() : null;
+const BASE = (args[0] || "http://localhost:3000").replace(/\/$/, "");
 
 const CASES = [
   {
@@ -48,7 +55,7 @@ const CASES = [
     must: [/QualityCrew/i],
   },
   {
-    name: "Anglais : ThreatScope et l'IA",
+    name: "Anglais : ThreatScope et l'IA (interface française)",
     turns: ["Does ThreatScope use AI?"],
     must: [/optional|button|suggest|propos|STRIDE/i, /\b(the|and|is|it)\b/i],
     never: [/\b(le|les|est|une)\b/i],
@@ -103,9 +110,11 @@ async function ask(messages, lang) {
 }
 
 (async () => {
-  console.log(`\n🧪 Évaluation des réponses — ${BASE}\n`);
+  const cases = FILTER ? CASES.filter((c) => c.name.toLowerCase().includes(FILTER)) : CASES;
+  if (!cases.length) throw new Error(`aucun cas ne contient « ${FILTER} »`);
+  console.log(`\n🧪 Évaluation des réponses — ${BASE} (${cases.length}/${CASES.length} cas)\n`);
   let failures = 0;
-  for (const c of CASES) {
+  for (const c of cases) {
     const messages = [];
     let answer = "";
     for (const turn of c.turns) {
@@ -123,7 +132,7 @@ async function ask(messages, lang) {
     console.log(`   « ${answer.replace(/\s+/g, " ").trim()} »`);
     for (const p of problems) console.log(`   ⚠️  ${p}`);
   }
-  console.log(`\n${CASES.length - failures}/${CASES.length} réponses conformes\n`);
+  console.log(`\n${cases.length - failures}/${cases.length} réponses conformes\n`);
   process.exit(failures ? 1 : 0);
 })().catch((err) => {
   console.error("Évaluation interrompue :", err.message);
