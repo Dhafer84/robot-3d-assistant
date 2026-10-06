@@ -2,15 +2,40 @@
 //
 // La réponse arrive morceau par morceau : elle s'affiche au fil de l'eau et chaque phrase
 // terminée part tout de suite à la synthèse vocale, sans attendre la fin de la réponse.
+//
+// La conversation est gardée dans le sessionStorage du navigateur (onglet courant, jusqu'à
+// sa fermeture ; rien sur le serveur) : dans la bulle, elle survit au changement de page
+// du site hôte. Les réponses restaurées sont affichées, pas relues.
 
 import { createTagFilter, splitSentences } from "./text.js";
 import { LANG, t } from "./i18n.js";
 
 const MAX_HISTORY = 20; // messages conservés et renvoyés à l'IA
+const STORE_KEY = "r3d-conversation";
+
+// Historique gardé ; [] si absent, illisible ou stockage bloqué (navigation privée stricte…)
+function loadHistory() {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(STORE_KEY));
+    return Array.isArray(saved)
+      ? saved.filter((m) => (m?.role === "user" || m?.role === "assistant") && typeof m.content === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
 
 export function createChat({ listEl, speaker, state, onStatus }) {
-  const history = [];
+  const history = loadHistory();
   let controller = null; // requête en cours, annulée si une nouvelle question arrive
+
+  function persist() {
+    try {
+      sessionStorage.setItem(STORE_KEY, JSON.stringify(history));
+    } catch {
+      // stockage plein ou bloqué : la conversation continue, sans mémoire
+    }
+  }
 
   function addBubble(role, text) {
     const bubble = document.createElement("div");
@@ -24,6 +49,18 @@ export function createChat({ listEl, speaker, state, onStatus }) {
   function remember(role, content) {
     history.push({ role, content });
     if (history.length > MAX_HISTORY) history.splice(0, history.length - MAX_HISTORY);
+    persist();
+  }
+
+  // Une question sans réponse est retirée (elle pourra être reposée telle quelle)
+  function forgetLastQuestion() {
+    if (history.at(-1)?.role === "user") history.pop();
+    persist();
+  }
+
+  // Conversation restaurée : affichée sans la balise d'émotion
+  for (const { role, content } of history) {
+    addBubble(role, content.replace(/^\s*<\s*[a-zéè]+\s*>\s*/i, ""));
   }
 
   async function ask(question) {
@@ -89,7 +126,7 @@ export function createChat({ listEl, speaker, state, onStatus }) {
           state.emotion = "desole";
           state.emotionAt = performance.now() / 1000;
           speaker.say(data.error);
-          history.pop(); // la question pourra être reposée telle quelle
+          forgetLastQuestion();
           onStatus(t("limitReached"));
           return;
         }
@@ -121,7 +158,7 @@ export function createChat({ listEl, speaker, state, onStatus }) {
       bubble.classList.add("error");
       bubble.textContent = t("chatError", { error: err.message });
       // La question sans réponse est retirée pour ne pas fausser la suite
-      if (history.at(-1)?.role === "user") history.pop();
+      forgetLastQuestion();
       onStatus(t("connectionError"));
     }
   }
@@ -135,5 +172,6 @@ export function createChat({ listEl, speaker, state, onStatus }) {
     speaker.say(text);
   }
 
-  return { ask, echo };
+  // restored : une conversation reprend (l'avatar ne refait pas son salut)
+  return { ask, echo, restored: history.length > 0 };
 }

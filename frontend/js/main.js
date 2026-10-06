@@ -7,7 +7,7 @@ import { loadRiggedAvatar } from "./avatars.js";
 import { createTracker } from "./tracking.js";
 import { isVoiceSupported, createListener, createSpeaker } from "./voice.js";
 import { createChat } from "./chat.js";
-import { LANG, t } from "./i18n.js";
+import { t } from "./i18n.js";
 
 const sceneContainer = document.getElementById("scene-container");
 const trackingSlot = document.getElementById("trackingSlot");
@@ -32,6 +32,10 @@ const { scene, camera, renderer } = createScene(sceneContainer);
 const EMBED = document.documentElement.classList.contains("embed");
 const EMBED_TARGET_OFFSET = new THREE.Vector3(0, 0.22, 0);
 const EMBED_ZOOM = 0.68;
+// Bulle basse (clavier du mobile ouvert) : gros plan sur la tête. Même seuil que le CSS.
+const COMPACT = window.matchMedia("(max-height: 400px)");
+const COMPACT_TARGET_OFFSET = new THREE.Vector3(0, 0.36, 0);
+const COMPACT_ZOOM = 0.4;
 const framingTarget = new THREE.Vector3();
 const cameraTarget = new THREE.Vector3(0, 0.95, 0);
 const cameraDirection = new THREE.Vector3(0, 1.0, 4.9).normalize();
@@ -54,7 +58,7 @@ loadRiggedAvatar("./models/avatar.glb", showProgress)
   .then((loaded) => {
     avatar = loaded;
     scene.add(avatar.root);
-    avatar.wave();
+    if (!chat.restored) avatar.wave(); // pas de nouveau salut à chaque page visitée
     loaderEl.classList.add("done");
     setStatus(t("ready"));
   })
@@ -70,8 +74,9 @@ renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), 0.1);
   if (avatar) {
     framingTarget.copy(avatar.framing.target);
-    if (EMBED) framingTarget.add(EMBED_TARGET_OFFSET);
-    const distance = avatar.framing.distance * (EMBED ? EMBED_ZOOM : 1);
+    const compact = EMBED && COMPACT.matches;
+    if (EMBED) framingTarget.add(compact ? COMPACT_TARGET_OFFSET : EMBED_TARGET_OFFSET);
+    const distance = avatar.framing.distance * (compact ? COMPACT_ZOOM : EMBED ? EMBED_ZOOM : 1);
     cameraTarget.lerp(framingTarget, 1 - Math.exp(-4 * dt));
     cameraDistance = THREE.MathUtils.damp(cameraDistance, distance, 4, dt);
   }
@@ -156,17 +161,11 @@ chatForm.addEventListener("submit", (event) => {
 });
 
 // Micro refusé : on explique quoi faire. Dans la bulle d'un autre site, le micro passe par
-// une délégation que certains navigateurs mobiles refusent : en plein écran, il n'y en a plus.
+// une délégation que certains navigateurs mobiles refusent : on propose alors d'écrire,
+// sans quitter la bulle (plus de lien vers un autre onglet, choix du 06/10/2026).
 function showMicBlocked() {
-  statusEl.textContent = t(EMBED ? "micBlockedEmbed" : "micBlocked");
-  if (EMBED) {
-    const link = document.createElement("a");
-    link.href = `${location.origin}/?lang=${LANG}`;
-    link.target = "_blank";
-    link.rel = "noopener";
-    link.textContent = t("micFullScreenLink");
-    statusEl.appendChild(link);
-  }
+  setStatus(t(EMBED ? "micBlockedEmbed" : "micBlocked"));
+  if (EMBED) chatInput.focus();
 }
 
 let listener = null;

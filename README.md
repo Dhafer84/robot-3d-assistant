@@ -81,7 +81,7 @@ npm run eval -- --cas anglais                                # seulement les cas
 cd backend && npm test
 ```
 
-62 tests (`backend/test/`, `node:test`, aucune dépendance), sans réseau : l'API Groq est simulée. Ils couvrent la conversation (streaming, réflexion du modèle filtrée, sections de la fiche envoyées, limites Groq et par visiteur, bascule vers le modèle de secours), les en-têtes de sécurité et la CSP, les fichiers servis sous `/vendor/`, le contrôle de santé, les deux langues de l'interface (aucun texte manquant ni texte français oublié en dur), le traitement du texte (balises d'émotion coupées, phrases, langue), les statistiques (aucune IP écrite, masquage, conservation) et l'absence de données personnelles dans la fiche. Ils tournent à chaque push sur GitHub (`.github/workflows/tests.yml`) et avant chaque redémarrage sur le VPS (`deploy/update.sh`).
+66 tests (`backend/test/`, `node:test`, aucune dépendance), sans réseau : l'API Groq est simulée. Ils couvrent la conversation (streaming, réflexion du modèle filtrée, sections de la fiche envoyées, limites Groq et par visiteur, bascule vers le modèle de secours), les en-têtes de sécurité et la CSP, les fichiers servis sous `/vendor/`, le contrôle de santé, les deux langues de l'interface (aucun texte manquant ni texte français oublié en dur), la conversation gardée pendant la visite, le traitement du texte (balises d'émotion coupées, phrases, langue), les statistiques (aucune IP écrite, masquage, conservation) et l'absence de données personnelles dans la fiche. Ils tournent à chaque push sur GitHub (`.github/workflows/tests.yml`) et avant chaque redémarrage sur le VPS (`deploy/update.sh`).
 
 ## Sécurité
 
@@ -105,7 +105,7 @@ Ajoute cette ligne avant `</body>` sur le site hôte (en remplaçant l'adresse p
 <script src="https://assistant.qualitycrew.fr/embed.js" defer></script>
 ```
 
-Un bouton rond avec l'avatar apparaît en bas à droite ; au clic, l'assistant s'ouvre dans une bulle (en plein écran sur mobile). Il n'est chargé qu'au premier clic, pour ne pas ralentir le site, et se tait quand on ferme la bulle. Options : `data-lang="en"` pour un bouton, une bulle **et un assistant** en anglais (sans cet attribut, la langue de la page hôte, `<html lang>`, est utilisée), `data-position="left"` pour le placer à gauche, `data-label="…"` pour changer l'infobulle. Démo locale : [http://localhost:3000/demo-integration.html](http://localhost:3000/demo-integration.html).
+Un bouton rond avec l'avatar apparaît en bas à droite ; au clic, l'assistant s'ouvre dans une fenêtre flottante, au-dessus du site, sur ordinateur comme sur mobile. On la déplace par son en-tête, on l'agrandit en plein écran avec ⤢, et sur mobile elle occupe la partie visible de l'écran quand le clavier s'ouvre (l'avatar se réduit alors à la tête). Le bouton rond se déplace aussi. Pendant la visite, la bulle reste ouverte d'une page à l'autre, à la même place, avec la conversation (gardée dans le navigateur du visiteur jusqu'à la fermeture de l'onglet, jamais sur le serveur). L'assistant n'est chargé qu'au premier clic, pour ne pas ralentir le site, et se tait quand on ferme la bulle. Options : `data-lang="en"` pour un bouton, une bulle **et un assistant** en anglais (sans cet attribut, la langue de la page hôte, `<html lang>`, est utilisée), `data-position="left"` pour le placer à gauche, `data-label="…"` pour changer l'infobulle. Démo locale : [http://localhost:3000/demo-integration.html](http://localhost:3000/demo-integration.html).
 
 ## Langues de l'interface
 

@@ -285,6 +285,14 @@
     .embed #ui { padding: 8px; gap: 8px; flex-wrap: wrap; }
     .embed #ui button { padding: 6px 12px; font-size: 0.85rem; }
     .embed #status { font-size: 0.75rem; flex-basis: 100%; }
+    /* Bulle basse (clavier du mobile ouvert, petite fenêtre) : avatar réduit à la tête
+       (cadrage resserré dans main.js, même seuil), seulement l'essentiel en dessous */
+    @media (max-height: 400px) {
+      .embed #scene-container { flex-basis: 30%; }
+      .embed #privacyNote, .embed #status { display: none; }
+      .embed #side { padding: 6px 8px; gap: 6px; }
+      .embed #ui { padding: 4px 8px; }
+    }
 
     #modeAssistantBtn.active,
     #modeMiroirBtn.active {
