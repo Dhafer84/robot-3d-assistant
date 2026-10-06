@@ -6,6 +6,8 @@
 // L'iframe envoie des mesures brutes ; on y applique ici la posture neutre et le gain.
 // Supprimer l'iframe coupe la caméra.
 
+import { t } from "./i18n.js";
+
 const FRAME_URL = "/tracking.html";
 const START_TIMEOUT = 30000; // ms : premier chargement des modèles MediaPipe compris
 
@@ -72,7 +74,7 @@ export function createTracker(container, state) {
       return new Promise((resolve, reject) => {
         const iframe = document.createElement("iframe");
         iframe.src = FRAME_URL;
-        iframe.title = "Aperçu de la webcam";
+        iframe.title = t("webcamPreview");
         iframe.allow = "camera";
 
         const timer = setTimeout(() => fail("TimeoutError"), START_TIMEOUT);

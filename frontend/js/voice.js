@@ -1,6 +1,7 @@
 // voice.js — reconnaissance vocale (Web Speech API) et synthèse vocale (Piper, ou voix du navigateur).
 
 import { cleanForSpeech, detectLang } from "./text.js";
+import { LANG, t } from "./i18n.js";
 
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -143,7 +144,7 @@ export function createSpeaker(state) {
 // erreur vaut "not-allowed" quand le micro est refusé.
 export function createListener({ state, onText, onStatus }) {
   const recognition = new SpeechRecognition();
-  recognition.lang = "fr-FR";
+  recognition.lang = BROWSER_LANGS[LANG]; // le micro comprend la langue de l'interface
   recognition.interimResults = false;
   recognition.maxAlternatives = 1;
   recognition.continuous = true;
@@ -153,7 +154,7 @@ export function createListener({ state, onText, onStatus }) {
 
   function micRefused() {
     listening = false;
-    onStatus("Micro refusé.", false, "not-allowed");
+    onStatus(t("micRefused"), false, "not-allowed");
   }
 
   // Dans une iframe (bulle sur un autre site), surtout sur mobile, la reconnaissance vocale
@@ -166,20 +167,20 @@ export function createListener({ state, onText, onStatus }) {
     micGranted = true;
   }
 
-  recognition.onstart = () => onStatus("Écoute en cours… 🎙️ (parle quand tu veux)", true);
+  recognition.onstart = () => onStatus(t("listening"), true);
 
   recognition.onerror = (e) => {
     // "no-speech" et "aborted" sont normaux en écoute continue
     if (e.error === "no-speech" || e.error === "aborted") return;
     if (e.error === "not-allowed" || e.error === "service-not-allowed") return micRefused();
     listening = false;
-    onStatus(`Erreur reconnaissance vocale : ${e.error}`, false, e.error);
+    onStatus(t("voiceError", { error: e.error }), false, e.error);
   };
 
   // Le navigateur coupe régulièrement l'écoute : on la relance tant qu'elle est active
   recognition.onend = () => {
     if (listening) recognition.start();
-    else onStatus("Écoute arrêtée.", false);
+    else onStatus(t("listeningStopped"), false);
   };
 
   recognition.onresult = (event) => {
@@ -200,7 +201,7 @@ export function createListener({ state, onText, onStatus }) {
         return false;
       }
       listening = true;
-      onStatus("Autorisation du micro…", true);
+      onStatus(t("micAsking"), true);
       try {
         await ensureMicrophone();
       } catch {

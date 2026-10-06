@@ -3,7 +3,8 @@
 //   <script src="https://assistant.qualitycrew.fr/embed.js" defer></script>
 //
 // Options (attributs facultatifs de la balise <script>) :
-//   data-lang="en"                         textes du bouton et de la bulle en anglais
+//   data-lang="en"                         bouton, bulle ET assistant en anglais (sinon
+//                                          langue de la page hôte, <html lang>)
 //   data-label / data-title / data-close   textes du bouton, de l'en-tête et du bouton
 //                                          de fermeture (remplacent ceux de data-lang)
 //   data-position="left"                   bulle en bas à gauche au lieu de la droite
@@ -22,7 +23,10 @@
     en: { label: "Talk to my assistant", title: "Dhafer's assistant", close: "Close" },
   };
   const { label: dataLabel, title: dataTitle, close: dataClose } = script.dataset;
-  const base = TEXTS[script.dataset.lang] || TEXTS.fr;
+  // Langue : data-lang, sinon celle de la page hôte ; transmise à l'assistant (?lang=)
+  const asked = (script.dataset.lang || document.documentElement.lang || "").slice(0, 2).toLowerCase();
+  const lang = asked in TEXTS ? asked : "fr";
+  const base = TEXTS[lang];
   const texts = { label: dataLabel || base.label, title: dataTitle || base.title, close: dataClose || base.close };
   const label = texts.label;
   const side = script.dataset.position === "left" ? "left" : "right";
@@ -93,7 +97,7 @@
       frame = document.createElement("iframe");
       frame.id = "r3d-frame";
       frame.title = texts.title;
-      frame.src = `${origin}/?embed`;
+      frame.src = `${origin}/?embed&lang=${lang}`;
       // Micro et caméra doivent être délégués explicitement à l'iframe
       frame.allow = "microphone; camera; autoplay";
       panel.appendChild(frame);

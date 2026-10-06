@@ -63,10 +63,23 @@ const SECTION_KEYWORDS = {
   "Autres projets": /projet|portfolio|robot|avatar|3d|assistant|qui es|who are|toi-m[êe]me|comment (tu )?(es|as)|project/,
 };
 
+// Interface en anglais : l'IA suit déjà la langue de chaque question, mais la règle se
+// termine par « en français sinon » — un message ambigu (« QualityCrew ? », « ok », un nom
+// propre seul) recevait une réponse en français. On change la langue par défaut de la règle
+// elle-même, et on le rappelle EN ANGLAIS tout à la fin du prompt, après la fiche (en
+// français) : sans ce rappel, « QualityCrew ? » recevait encore une réponse en français.
+// Mais ce rappel l'emporte aussi sur une vraie question en français : il n'est donc ajouté
+// que si le message n'est PAS clairement en français ou en arabe (writtenInFrenchOrArabic).
+const LANG_RULE = "en anglais s'il écrit en anglais, en arabe s'il écrit en arabe, en français sinon.";
+const LANG_RULE_EN =
+  "en français s'il écrit en français, en arabe s'il écrit en arabe, en anglais sinon (le visiteur utilise la version anglaise du site), même si son message est ambigu.";
+const ENGLISH_REMINDER =
+  "\n\n--- LANGUAGE ---\nThe visitor is using the English version of the site and their message is in English or ambiguous (a product name, \"ok\"…): answer in English.";
+
 const PERSONA = `Tu es l'assistant personnel de Dhafer Bouthelja. Tu apparais sous la forme d'un avatar 3D à son image, sur son portfolio et sur le site Quality Crew, et tu parles aux visiteurs à voix haute.
 
 Style :
-- Réponds toujours dans la langue du dernier message du visiteur : en anglais s'il écrit en anglais, en arabe s'il écrit en arabe, en français sinon. Ton chaleureux et professionnel.
+- Réponds toujours dans la langue du dernier message du visiteur : ${LANG_RULE} Ton chaleureux et professionnel.
 - Sois bref : 1 à 3 phrases courtes, 4 au maximum si la question le demande vraiment.
 - Tes réponses sont lues à voix haute : pas de markdown, pas de listes, pas d'emojis, pas d'URL à rallonge (dis plutôt "sur son site" ou "sur LinkedIn").
 - Ne te présentes que si on te salue ou si on te demande qui tu es.
@@ -80,6 +93,48 @@ Faits :
 - Reste cohérent avec tes réponses précédentes ; si l'une d'elles contredit la fiche, corrige-toi franchement.
 - Pour utiliser un outil, résume ce que dit la fiche et invite à l'essayer sur qualitycrew.fr ; n'invente jamais de boutons ni d'étapes d'interface.
 - Pour des questions générales (technologie, qualité logicielle, tests…), tu peux répondre avec tes connaissances, brièvement.`;
+
+// Messages du serveur affichés (et lus) par l'interface, dans sa langue (champ `lang` de la
+// requête, envoyé par chat.js d'après frontend/js/i18n.js)
+const SERVER_TEXTS = {
+  fr: {
+    empty: "La conversation est vide.",
+    invalid: "Message invalide.",
+    blank: "Message vide.",
+    tooLong: "Le message est trop long.",
+    lastNotUser: "Le dernier message doit venir du visiteur.",
+    visitorLimit: (s) => `Tu poses beaucoup de questions d'un coup ! Laisse-moi souffler ${s} secondes, s'il te plaît.`,
+    groqLimit: (s) => `Je reçois beaucoup de questions en ce moment. Repose-moi la tienne dans ${s} secondes, s'il te plaît.`,
+    noKey: "Clé API Groq manquante côté serveur.",
+    groqError: "Erreur lors de l'appel à Groq.",
+    serverError: "Erreur serveur.",
+  },
+  en: {
+    empty: "The conversation is empty.",
+    invalid: "Invalid message.",
+    blank: "Empty message.",
+    tooLong: "The message is too long.",
+    lastNotUser: "The last message must come from the visitor.",
+    visitorLimit: (s) => `That's a lot of questions at once! Give me ${s} seconds to catch my breath, please.`,
+    groqLimit: (s) => `I'm getting a lot of questions right now. Please ask yours again in ${s} seconds.`,
+    noKey: "Groq API key missing on the server.",
+    groqError: "Error while calling Groq.",
+    serverError: "Server error.",
+  },
+};
+const langOf = (req) => (req.body?.lang === "en" ? "en" : "fr");
+
+// Le message est-il clairement en français (mots courants, accents) ou en arabe ?
+// « QualityCrew ? », « ok », « ISO 26262 ? » : non → ambigu.
+const ARABIC_LETTERS = /[؀-ۿ]/;
+const FRENCH_WORDS = /\b(le|la|les|un|une|des|du|de|et|est|sont|que|qui|quoi|quel|quels|quelle|quelles|comment|pourquoi|combien|dans|sur|avec|pour|par|ce|cette|ces|il|elle|vous|tu|je|j|me|mon|ma|mes|ton|ta|tes|son|sa|ses|peux|peut|fait|bonjour|salut|merci|oui|non|propose|parle)\b/gi;
+const ENGLISH_WORDS = /\b(the|a|an|and|is|are|what|who|how|why|which|does|do|can|you|your|he|his|with|for|of|to|this|that|it|in|on|has|hello|hi|thanks|yes|no)\b/gi;
+function writtenInFrenchOrArabic(text) {
+  if (ARABIC_LETTERS.test(text)) return true;
+  const fr = (text.match(FRENCH_WORDS) || []).length + (/[éèêàùçôîû]/i.test(text) ? 2 : 0);
+  const en = (text.match(ENGLISH_WORDS) || []).length;
+  return fr > 0 && fr > en;
+}
 
 // La fiche est relue à chaque question : on peut la modifier sans redémarrer le serveur.
 // Elle est découpée en sections "## Titre" ; l'en-tête (avant la première section) est
@@ -97,7 +152,7 @@ function readProfileSections() {
     .map((text) => ({ title: text.slice(3, text.indexOf("\n")).trim(), text: text.trim() }));
 }
 
-function buildSystemPrompt(messages) {
+function buildSystemPrompt(messages, lang = "fr") {
   // Les deux dernières questions ET la dernière réponse de l'assistant : dans une question de
   // suivi (« et l'IA dans ce dernier ? »), c'est souvent sa réponse qui nomme l'outil.
   const lastAnswer = messages.filter((m) => m.role === "assistant").slice(-1);
@@ -120,7 +175,10 @@ function buildSystemPrompt(messages) {
   }
   const selected = sections.filter((s) => wanted.has(s.title));
 
-  return `${PERSONA}\n\n--- FICHE DE PROFIL (extraits utiles à la question) ---\n${selected.map((s) => s.text).join("\n\n")}`;
+  const persona = lang === "en" ? PERSONA.replace(LANG_RULE, LANG_RULE_EN) : PERSONA;
+  const lastQuestion = messages.filter((m) => m.role === "user").at(-1)?.content || "";
+  const reminder = lang === "en" && !writtenInFrenchOrArabic(lastQuestion) ? ENGLISH_REMINDER : "";
+  return `${persona}\n\n--- FICHE DE PROFIL (extraits utiles à la question) ---\n${selected.map((s) => s.text).join("\n\n")}${reminder}`;
 }
 
 // Délai demandé par Groq, en secondes ("try again in 67.5ms", "11.4s" ou "1m2.5s")
@@ -133,14 +191,15 @@ function parseRetryDelay(details) {
 }
 
 // Historique envoyé par le navigateur : [{ role: "user" | "assistant", content }, …]
+// Renvoie null, ou la clé du message d'erreur (SERVER_TEXTS)
 function validateMessages(messages) {
-  if (!Array.isArray(messages) || messages.length === 0) return "La conversation est vide.";
+  if (!Array.isArray(messages) || messages.length === 0) return "empty";
   for (const m of messages) {
-    if (!m || (m.role !== "user" && m.role !== "assistant")) return "Message invalide.";
-    if (typeof m.content !== "string" || !m.content.trim()) return "Message vide.";
-    if (m.content.length > MAX_MESSAGE_LENGTH) return "Le message est trop long.";
+    if (!m || (m.role !== "user" && m.role !== "assistant")) return "invalid";
+    if (typeof m.content !== "string" || !m.content.trim()) return "blank";
+    if (m.content.length > MAX_MESSAGE_LENGTH) return "tooLong";
   }
-  if (messages[messages.length - 1].role !== "user") return "Le dernier message doit venir du visiteur.";
+  if (messages[messages.length - 1].role !== "user") return "lastNotUser";
   return null;
 }
 
@@ -168,7 +227,7 @@ function rateLimit(name, max, message) {
       const retryAfter = Math.ceil((times[0] + 60_000 - now) / 1000);
       res.setHeader("Retry-After", retryAfter);
       stats.record("limit", { kind: name });
-      return res.status(429).json({ error: message(retryAfter), retryAfter });
+      return res.status(429).json({ error: message(retryAfter, langOf(req)), retryAfter });
     }
     times.push(now);
     hits.set(req.ip, times);
@@ -206,10 +265,11 @@ app.use(
 
 // Statistiques d'une question terminée. Le texte n'est gardé que si l'assistant n'a pas su
 // répondre (voir stats.js) ; `turn` = rang de la question dans la conversation (1 = nouvelle).
-function recordQuestion(req, messages, answer) {
+function recordQuestion(req, messages, answer, lang) {
   const answered = !stats.isUnanswered(answer);
   stats.record("question", {
     embed: /[?&]embed\b/.test(req.get("referer") || ""),
+    lang, // langue de l'interface (pas celle de la question)
     turn: messages.filter((m) => m.role === "user").length,
     emotion: stats.emotionOf(answer),
     answered,
@@ -218,18 +278,16 @@ function recordQuestion(req, messages, answer) {
 }
 
 // Répond en texte brut, envoyé morceau par morceau au fil de la génération
-const chatLimit = rateLimit(
-  "visitor-chat",
-  CHAT_LIMIT_PER_MINUTE,
-  (s) => `Tu poses beaucoup de questions d'un coup ! Laisse-moi souffler ${s} secondes, s'il te plaît.`
-);
+const chatLimit = rateLimit("visitor-chat", CHAT_LIMIT_PER_MINUTE, (s, lang) => SERVER_TEXTS[lang].visitorLimit(s));
 const ttsLimit = rateLimit("visitor-tts", TTS_LIMIT_PER_MINUTE, () => "Trop de demandes de voix.");
 
 app.post("/api/chat", chatLimit, async (req, res) => {
   const messages = req.body?.messages;
+  const lang = langOf(req);
+  const texts = SERVER_TEXTS[lang];
   const error = validateMessages(messages);
-  if (error) return res.status(400).json({ error });
-  if (!GROQ_API_KEY) return res.status(500).json({ error: "Clé API Groq manquante côté serveur." });
+  if (error) return res.status(400).json({ error: texts[error] });
+  if (!GROQ_API_KEY) return res.status(500).json({ error: texts.noKey });
 
   // Si le visiteur coupe la parole (nouvelle question), on arrête la génération
   const upstream = new AbortController();
@@ -241,7 +299,7 @@ app.post("/api/chat", chatLimit, async (req, res) => {
       stream: true,
       reasoning_effort: "low",
       messages: [
-        { role: "system", content: buildSystemPrompt(messages) },
+        { role: "system", content: buildSystemPrompt(messages, lang) },
         ...messages.slice(-MAX_HISTORY).map(({ role, content }) => ({ role, content: content.trim() })),
       ],
     });
@@ -268,7 +326,7 @@ app.post("/api/chat", chatLimit, async (req, res) => {
       stats.record("limit", { kind: "groq" });
       const seconds = Math.max(1, Math.ceil(wait));
       return res.status(429).json({
-        error: `Je reçois beaucoup de questions en ce moment. Repose-moi la tienne dans ${seconds} secondes, s'il te plaît.`,
+        error: texts.groqLimit(seconds),
         retryAfter: seconds,
       });
     }
@@ -276,7 +334,7 @@ app.post("/api/chat", chatLimit, async (req, res) => {
     if (!response.ok) {
       console.error("Erreur HTTP Groq :", response.status, await response.text());
       stats.record("error", { status: response.status });
-      return res.status(502).json({ error: "Erreur lors de l'appel à Groq." });
+      return res.status(502).json({ error: texts.groqError });
     }
 
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
@@ -301,12 +359,12 @@ app.post("/api/chat", chatLimit, async (req, res) => {
       }
     }
     res.end();
-    recordQuestion(req, messages, answer);
+    recordQuestion(req, messages, answer, lang);
   } catch (err) {
     if (err.name === "AbortError") return;
     console.error("Erreur API Groq :", err);
     stats.record("error", { status: "exception" }); // Groq injoignable, flux coupé…
-    if (!res.headersSent) res.status(500).json({ error: "Erreur serveur." });
+    if (!res.headersSent) res.status(500).json({ error: texts.serverError });
     else res.end();
   }
 });
@@ -441,4 +499,13 @@ if (require.main === module) {
 // resetHealthCache : pour les tests (chaque cas veut un contrôle frais)
 const resetHealthCache = () => (healthCache = null);
 
-module.exports = { app, validateMessages, parseRetryDelay, buildSystemPrompt, readProfileSections, resetHealthCache, MAX_HISTORY };
+module.exports = {
+  app,
+  validateMessages,
+  parseRetryDelay,
+  buildSystemPrompt,
+  readProfileSections,
+  writtenInFrenchOrArabic,
+  resetHealthCache,
+  MAX_HISTORY,
+};

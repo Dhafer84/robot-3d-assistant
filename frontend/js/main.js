@@ -7,6 +7,7 @@ import { loadRiggedAvatar } from "./avatars.js";
 import { createTracker } from "./tracking.js";
 import { isVoiceSupported, createListener, createSpeaker } from "./voice.js";
 import { createChat } from "./chat.js";
+import { LANG, t } from "./i18n.js";
 
 const sceneContainer = document.getElementById("scene-container");
 const trackingSlot = document.getElementById("trackingSlot");
@@ -45,23 +46,23 @@ const loaderText = loaderEl.querySelector("p");
 function showProgress(fraction) {
   const percent = Math.round(fraction * 100);
   loaderBar.style.width = `${percent}%`;
-  loaderText.textContent = percent < 100 ? `Chargement de l'assistant… ${percent} %` : "Préparation…";
+  loaderText.textContent = percent < 100 ? t("loadingPercent", { percent }) : t("preparing");
 }
 
-setStatus("Chargement de l'avatar…");
+setStatus(t("loadingAvatar"));
 loadRiggedAvatar("./models/avatar.glb", showProgress)
   .then((loaded) => {
     avatar = loaded;
     scene.add(avatar.root);
     avatar.wave();
     loaderEl.classList.add("done");
-    setStatus("Prêt.");
+    setStatus(t("ready"));
   })
   .catch((err) => {
     console.error("❌ Erreur chargement avatar.glb", err);
     loaderEl.classList.add("error");
-    loaderText.textContent = "Impossible de charger l'avatar 3D. Tu peux quand même écrire ta question.";
-    setStatus("Impossible de charger l'avatar 3D.");
+    loaderText.textContent = t("avatarError");
+    setStatus(t("avatarErrorShort"));
   });
 
 const clock = new THREE.Clock();
@@ -91,11 +92,11 @@ function setMode(mode) {
 
 modeButtons.assistant.addEventListener("click", () => {
   setMode("assistant");
-  setStatus("Mode Assistant IA sélectionné.");
+  setStatus(t("modeAssistantOn"));
 });
 modeButtons.miroir.addEventListener("click", () => {
   setMode("miroir");
-  setStatus("Mode Miroir (je répète tout) sélectionné.");
+  setStatus(t("modeMirrorOn"));
 });
 setMode(state.mode);
 
@@ -105,28 +106,28 @@ const tracker = createTracker(trackingSlot, state);
 function setTrackingUI(active) {
   document.body.classList.toggle("tracking", active);
   camBtn.classList.toggle("active", active);
-  camBtn.textContent = active ? "📷 Couper le suivi" : "📷 Activer le suivi";
+  camBtn.textContent = t(active ? "camOff" : "camOn");
 }
 
 camBtn.addEventListener("click", async () => {
   if (tracker.active) {
     tracker.stop();
     setTrackingUI(false);
-    setStatus("Suivi coupé, caméra libérée.");
+    setStatus(t("camStopped"));
     return;
   }
   camBtn.disabled = true;
-  setStatus("Démarrage de la caméra…");
+  setStatus(t("camStarting"));
   // L'aperçu s'affiche dès le démarrage : la page de suivi a besoin d'être visible pour tourner
   document.body.classList.add("tracking");
   try {
     await tracker.start();
     setTrackingUI(true);
-    setStatus("Je te suis des yeux 👀 (rien n'est enregistré ni envoyé).");
+    setStatus(t("camRunning"));
   } catch (err) {
     console.error("Erreur suivi webcam :", err);
     setTrackingUI(false);
-    setStatus(err.name === "NotAllowedError" ? "Caméra refusée : le suivi reste désactivé." : "Impossible de démarrer la caméra.");
+    setStatus(t(err.name === "NotAllowedError" ? "camRefused" : "camError"));
   } finally {
     camBtn.disabled = false;
   }
@@ -157,15 +158,13 @@ chatForm.addEventListener("submit", (event) => {
 // Micro refusé : on explique quoi faire. Dans la bulle d'un autre site, le micro passe par
 // une délégation que certains navigateurs mobiles refusent : en plein écran, il n'y en a plus.
 function showMicBlocked() {
-  statusEl.textContent = EMBED
-    ? "Micro bloqué dans la bulle : autorise-le pour ce site, écris ta question, ou "
-    : "Micro refusé : autorise-le pour ce site (icône à gauche de l'adresse) ou écris ta question.";
+  statusEl.textContent = t(EMBED ? "micBlockedEmbed" : "micBlocked");
   if (EMBED) {
     const link = document.createElement("a");
-    link.href = `${location.origin}/`;
+    link.href = `${location.origin}/?lang=${LANG}`;
     link.target = "_blank";
     link.rel = "noopener";
-    link.textContent = "ouvre l'assistant en plein écran ↗";
+    link.textContent = t("micFullScreenLink");
     statusEl.appendChild(link);
   }
 }
@@ -173,18 +172,18 @@ function showMicBlocked() {
 let listener = null;
 if (!isVoiceSupported()) {
   talkBtn.disabled = true;
-  setStatus("Reconnaissance vocale non supportée : utilise Chrome ou Edge (ou écris ta question).");
+  setStatus(t("voiceUnsupported"));
 } else {
   listener = createListener({
     state,
     onText: (text) => {
-      setStatus(`Tu as dit : « ${text} »`);
+      setStatus(t("youSaid", { text }));
       handleText(text);
     },
     onStatus: (text, listening, error) => {
       if (error === "not-allowed") showMicBlocked();
       else setStatus(text);
-      talkBtn.textContent = listening ? "⏹️ Stop écoute" : "🎙️ Activer écoute auto";
+      talkBtn.textContent = t(listening ? "talkOff" : "talkOn");
     },
   });
   talkBtn.addEventListener("click", () => listener.toggle());

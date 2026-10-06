@@ -20,7 +20,7 @@ const assert = require("node:assert/strict");
 const fs = require("fs");
 const path = require("path");
 
-const { app, MAX_HISTORY, resetHealthCache } = require("../server");
+const { app, MAX_HISTORY, resetHealthCache, writtenInFrenchOrArabic } = require("../server");
 const { inlineScriptHashes, NON_PAGE_CSP } = require("../security");
 
 const FRONTEND = path.join(__dirname, "..", "..", "frontend");
@@ -75,11 +75,11 @@ function newVisitor() {
   return `203.0.113.${ipCounter}`;
 }
 
-function chat(messages, ip = newVisitor()) {
+function chat(messages, ip = newVisitor(), lang) {
   return realFetch(`${base}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Forwarded-For": ip },
-    body: JSON.stringify({ messages }),
+    body: JSON.stringify({ messages, ...(lang && { lang }) }),
   });
 }
 
@@ -175,6 +175,55 @@ test("limite par visiteur : 10 questions par minute, puis 429", async () => {
   assert.deepEqual(statuts, [...Array(10).fill(400), 429]);
   // Un autre visiteur n'est pas concerné
   assert.equal((await chat([], newVisitor())).status, 400);
+});
+
+// ====== Interface en anglais (lang: "en", envoyé par chat.js) ======
+test("interface anglaise : messages du serveur en anglais, français par défaut", async () => {
+  const fr = await (await chat([])).json();
+  assert.equal(fr.error, "La conversation est vide.");
+  const en = await (await chat([], newVisitor(), "en")).json();
+  assert.equal(en.error, "The conversation is empty.");
+  // Valeur inconnue : français
+  assert.equal((await (await chat([], newVisitor(), "de")).json()).error, "La conversation est vide.");
+
+  groqReplies.push(() => new Response('{"error":{"message":"Please try again in 30s."}}', { status: 429 }));
+  const groq = await (await chat(ask("Hi"), newVisitor(), "en")).json();
+  assert.equal(groq.error, "I'm getting a lot of questions right now. Please ask yours again in 30 seconds.");
+
+  const ip = newVisitor();
+  for (let i = 0; i < 10; i++) await chat([], ip, "en");
+  const limit = await (await chat([], ip, "en")).json();
+  assert.match(limit.error, /^That's a lot of questions at once! Give me \d+ seconds/);
+});
+
+test("interface anglaise : l'IA est priée de répondre en anglais en cas de doute (rien en français)", async () => {
+  groqReplies.push(
+    () => sse([delta({ content: "<neutre> OK" })]),
+    () => sse([delta({ content: "<neutre> OK" })])
+  );
+  await (await chat(ask("QualityCrew ?"), newVisitor(), "en")).text();
+  await (await chat(ask("QualityCrew ?"))).text();
+  const [en, fr] = groqRequests.map((r) => r.messages[0].content);
+  // La règle de langue elle-même change de langue par défaut (pas une consigne de plus à la fin)
+  assert.match(en, /en français s'il écrit en français, en arabe s'il écrit en arabe, en anglais sinon \(le visiteur utilise la version anglaise du site\)/);
+  assert.match(fr, /en arabe s'il écrit en arabe, en français sinon\./);
+  assert.doesNotMatch(fr, /version anglaise/);
+  // …et un rappel en anglais tout à la fin, après la fiche (sinon le français l'emporte)
+  assert.match(en, /--- LANGUAGE ---\nThe visitor is using the English version of the site[^]*answer in English\.$/);
+  assert.doesNotMatch(fr, /LANGUAGE/);
+  assert.ok(en.startsWith(fr.slice(0, fr.indexOf("Style :")))); // le reste est identique
+});
+
+test("interface anglaise : une vraie question en français garde une réponse en français (pas de rappel)", async () => {
+  for (const q of ["Quels outils propose Quality Crew ?", "Bonjour", "Où travaille Dhafer ?", "مرحبا"]) {
+    assert.ok(writtenInFrenchOrArabic(q), q);
+  }
+  for (const q of ["QualityCrew ?", "ok", "ISO 26262 ?", "What does SafetyScope do?", "Is the ASIL computed by AI?"]) {
+    assert.ok(!writtenInFrenchOrArabic(q), q);
+  }
+  groqReplies.push(() => sse([delta({ content: "<neutre> OK" })]));
+  await (await chat(ask("Quels outils propose Quality Crew ?"), newVisitor(), "en")).text();
+  assert.doesNotMatch(groqRequests[0].messages[0].content, /LANGUAGE/);
 });
 
 // ====== Voix ======
@@ -340,6 +389,7 @@ test("statistiques : question sans réponse gardée, masquée, et jamais d'adres
   assert.equal(unanswered.answered, false);
   assert.equal(unanswered.emotion, "desole");
   assert.equal(unanswered.turn, 1);
+  assert.equal(unanswered.lang, "fr"); // langue de l'interface
   // Une question à laquelle il a répondu : comptée, mais son texte n'est PAS gardé
   const answered = questions.filter((e) => e.answered && e.emotion === "joie");
   assert.ok(answered.length >= 1);

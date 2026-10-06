@@ -4,6 +4,7 @@
 // terminée part tout de suite à la synthèse vocale, sans attendre la fin de la réponse.
 
 import { createTagFilter, splitSentences } from "./text.js";
+import { LANG, t } from "./i18n.js";
 
 const MAX_HISTORY = 20; // messages conservés et renvoyés à l'IA
 
@@ -36,7 +37,7 @@ export function createChat({ listEl, speaker, state, onStatus }) {
     remember("user", question);
     const bubble = addBubble("assistant", "…");
     bubble.classList.add("pending");
-    onStatus("Je réfléchis… 🤔");
+    onStatus(t("thinking"));
     state.thinking = true;
 
     let emotion = null;
@@ -74,7 +75,8 @@ export function createChat({ listEl, speaker, state, onStatus }) {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history }),
+        // lang : langue de l'interface, pour les messages du serveur et en cas de doute de l'IA
+        body: JSON.stringify({ messages: history, lang: LANG }),
         signal,
       });
       if (!res.ok) {
@@ -88,10 +90,10 @@ export function createChat({ listEl, speaker, state, onStatus }) {
           state.emotionAt = performance.now() / 1000;
           speaker.say(data.error);
           history.pop(); // la question pourra être reposée telle quelle
-          onStatus("Limite de questions atteinte, réessaie dans un instant.");
+          onStatus(t("limitReached"));
           return;
         }
-        throw new Error(data.error || `Erreur serveur (${res.status})`);
+        throw new Error(data.error || t("serverError", { status: res.status }));
       }
 
       const decoder = new TextDecoder();
@@ -101,11 +103,11 @@ export function createChat({ listEl, speaker, state, onStatus }) {
       append(tags.flush());
       state.thinking = false;
       if (unspoken.trim()) speaker.say(unspoken);
-      if (!answer.trim()) throw new Error("Réponse vide.");
+      if (!answer.trim()) throw new Error(t("emptyAnswer"));
 
       // La balise est gardée dans l'historique pour que l'IA conserve ce format
       remember("assistant", `<${emotion || "neutre"}> ${answer}`);
-      onStatus("Prêt.");
+      onStatus(t("ready"));
     } catch (err) {
       state.thinking = false;
       if (signal.aborted) {
@@ -117,10 +119,10 @@ export function createChat({ listEl, speaker, state, onStatus }) {
       console.error("Erreur chat :", err);
       bubble.classList.remove("pending");
       bubble.classList.add("error");
-      bubble.textContent = `Désolé, je n'arrive pas à joindre mon cerveau IA. (${err.message})`;
+      bubble.textContent = t("chatError", { error: err.message });
       // La question sans réponse est retirée pour ne pas fausser la suite
       if (history.at(-1)?.role === "user") history.pop();
-      onStatus("Erreur de communication.");
+      onStatus(t("connectionError"));
     }
   }
 
@@ -129,7 +131,7 @@ export function createChat({ listEl, speaker, state, onStatus }) {
     controller?.abort();
     speaker.stop();
     addBubble("user", text);
-    addBubble("assistant", `Je répète : ${text}`);
+    addBubble("assistant", t("echo", { text }));
     speaker.say(text);
   }
 

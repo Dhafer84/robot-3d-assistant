@@ -54,6 +54,20 @@ const CASES = [
     never: [/\b(le|les|est|une)\b/i],
   },
   {
+    name: "Interface anglaise : question ambiguë → réponse en anglais",
+    lang: "en", // comme chat.js sur une page /en de qualitycrew.fr
+    turns: ["QualityCrew ?"],
+    must: [/\b(the|and|is|it)\b/i],
+    never: [/\b(le|les|est|une|des)\b/i],
+  },
+  {
+    name: "Interface anglaise : question en français → réponse en français",
+    lang: "en",
+    turns: ["Quels outils propose Quality Crew ?"],
+    must: [/\b(le|les|est|des|une|et|propose|outils)\b/i],
+    never: [/\b(the|offers|tools)\b/i],
+  },
+  {
     name: "Ne pas inventer : salaire",
     turns: ["Combien gagne Dhafer ?"],
     must: [/<desole>|ne (sais|dispose|connais)|pas cette information|linkedin/i],
@@ -69,12 +83,12 @@ const CASES = [
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function ask(messages) {
+async function ask(messages, lang) {
   for (let attempt = 1; attempt <= 6; attempt++) {
     const res = await fetch(`${BASE}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages }),
+      body: JSON.stringify({ messages, ...(lang && { lang }) }),
     });
     if (res.status === 429) {
       const { retryAfter = 20 } = await res.json().catch(() => ({}));
@@ -96,7 +110,7 @@ async function ask(messages) {
     let answer = "";
     for (const turn of c.turns) {
       messages.push({ role: "user", content: turn });
-      answer = await ask(messages);
+      answer = await ask(messages, c.lang);
       messages.push({ role: "assistant", content: answer });
       await sleep(4000); // ménage le quota Groq gratuit (8 000 tokens/min)
     }

@@ -76,7 +76,7 @@ npm run eval -- https://assistant.qualitycrew.fr             # production
 cd backend && npm test
 ```
 
-45 tests (`backend/test/`, `node:test`, aucune dépendance), sans réseau : l'API Groq est simulée. Ils couvrent la conversation (streaming, réflexion du modèle filtrée, sections de la fiche envoyées, limites Groq et par visiteur), les en-têtes de sécurité et la CSP, les fichiers servis sous `/vendor/`, le contrôle de santé, le traitement du texte (balises d'émotion coupées, phrases, langue), les statistiques (aucune IP écrite, masquage, conservation) et l'absence de données personnelles dans la fiche. Ils tournent à chaque push sur GitHub (`.github/workflows/tests.yml`) et avant chaque redémarrage sur le VPS (`deploy/update.sh`).
+55 tests (`backend/test/`, `node:test`, aucune dépendance), sans réseau : l'API Groq est simulée. Ils couvrent la conversation (streaming, réflexion du modèle filtrée, sections de la fiche envoyées, limites Groq et par visiteur), les en-têtes de sécurité et la CSP, les fichiers servis sous `/vendor/`, le contrôle de santé, les deux langues de l'interface (aucun texte manquant ni texte français oublié en dur), le traitement du texte (balises d'émotion coupées, phrases, langue), les statistiques (aucune IP écrite, masquage, conservation) et l'absence de données personnelles dans la fiche. Ils tournent à chaque push sur GitHub (`.github/workflows/tests.yml`) et avant chaque redémarrage sur le VPS (`deploy/update.sh`).
 
 ## Sécurité
 
@@ -100,7 +100,11 @@ Ajoute cette ligne avant `</body>` sur le site hôte (en remplaçant l'adresse p
 <script src="https://assistant.qualitycrew.fr/embed.js" defer></script>
 ```
 
-Un bouton rond avec l'avatar apparaît en bas à droite ; au clic, l'assistant s'ouvre dans une bulle (en plein écran sur mobile). Il n'est chargé qu'au premier clic, pour ne pas ralentir le site, et se tait quand on ferme la bulle. Options : `data-position="left"` pour le placer à gauche, `data-label="…"` pour changer l'infobulle. Démo locale : [http://localhost:3000/demo-integration.html](http://localhost:3000/demo-integration.html).
+Un bouton rond avec l'avatar apparaît en bas à droite ; au clic, l'assistant s'ouvre dans une bulle (en plein écran sur mobile). Il n'est chargé qu'au premier clic, pour ne pas ralentir le site, et se tait quand on ferme la bulle. Options : `data-lang="en"` pour un bouton, une bulle **et un assistant** en anglais (sans cet attribut, la langue de la page hôte, `<html lang>`, est utilisée), `data-position="left"` pour le placer à gauche, `data-label="…"` pour changer l'infobulle. Démo locale : [http://localhost:3000/demo-integration.html](http://localhost:3000/demo-integration.html).
+
+## Langues de l'interface
+
+L'interface existe en français et en anglais (`frontend/js/i18n.js`) : `?lang=en` dans l'adresse (la bulle l'ajoute d'après la langue de la page hôte), sinon la langue du navigateur. En anglais, le micro écoute l'anglais et les messages du serveur sont traduits. L'IA répond toujours dans la langue de la question ; sur l'interface anglaise, un message ambigu (« QualityCrew ? », « ok ») reçoit une réponse en anglais, une vraie question en français une réponse en français.
 
 ## Voix naturelle (facultatif)
 
@@ -151,6 +155,7 @@ frontend/
   tracking.html    Page isolée du suivi webcam (MediaPipe) + js/tracking-frame.js
   js/chat.js       Conversation : historique, fil de discussion, streaming
   js/text.js       Balises d'émotion, découpage en phrases, langue (sans navigateur, testé)
+  js/i18n.js       Textes de l'interface en français et en anglais (testé)
   js/voice.js      Reconnaissance vocale ; lecture des phrases (Piper ou voix du navigateur)
   js/state.js      État partagé entre les modules
   models/          Modèle 3D de l'avatar (avatar.glb)

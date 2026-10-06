@@ -71,6 +71,9 @@ const count = (list, key) =>
 if (questions.length) {
   const fromBubble = questions.filter((q) => q.embed).length;
   console.log(`\nQuestions posées depuis la bulle : ${pct(fromBubble, questions.length)}`);
+  // `lang` n'existe que depuis le 06/10/2026 (interface en anglais) : questions plus anciennes ignorées
+  const withLang = questions.filter((q) => q.lang);
+  if (withLang.length) console.log(`Questions depuis l'interface anglaise : ${pct(withLang.filter((q) => q.lang === "en").length, withLang.length)}`);
   console.log(`Questions par conversation : ${(questions.length / Math.max(1, total.conv)).toFixed(1)}`);
   console.log(`Émotions des réponses : ${count(questions, "emotion")}`);
 }
