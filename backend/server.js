@@ -16,6 +16,8 @@ const HOST = process.env.HOST || "127.0.0.1";
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const GROQ_MODEL = process.env.GROQ_MODEL || "openai/gpt-oss-20b";
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
+// Fiche du modèle : répond sans consommer de quota (sert au contrôle de santé)
+const GROQ_MODEL_URL = `https://api.groq.com/openai/v1/models/${GROQ_MODEL}`;
 const FRONTEND_DIR = path.join(__dirname, "..", "frontend");
 // Sites autorisés à afficher l'assistant dans une bulle (embed.js), en plus de lui-même
 const FRAME_ANCESTORS = parseOrigins(
@@ -303,6 +305,7 @@ app.post("/api/chat", chatLimit, async (req, res) => {
   } catch (err) {
     if (err.name === "AbortError") return;
     console.error("Erreur API Groq :", err);
+    stats.record("error", { status: "exception" }); // Groq injoignable, flux coupé…
     if (!res.headersSent) res.status(500).json({ error: "Erreur serveur." });
     else res.end();
   }
@@ -330,19 +333,93 @@ app.post("/api/tts", ttsLimit, async (req, res) => {
   }
 });
 
+// ====== Santé (surveillance) ======
+// GET /api/health : l'IA est-elle joignable (clé acceptée, modèle toujours proposé par
+// Groq), la voix répond-elle, la fiche est-elle lisible ? Interrogé par une Action GitHub
+// programmée (.github/workflows/surveillance.yml). Aucune question posée à l'IA : pas de
+// quota consommé. Résultat gardé HEALTH_CACHE_MS, pour qu'un appel répété ne relaie pas
+// chaque fois vers Groq. Réponse : 200 si l'IA marche (« degrade » si seule la voix manque,
+// le navigateur lit alors avec la sienne), 503 sinon. Aucun détail interne exposé.
+const HEALTH_CACHE_MS = 60_000;
+let healthCache = null; // { at, promise }
+
+async function checkGroq() {
+  if (!GROQ_API_KEY) return "clé absente";
+  try {
+    const res = await fetch(GROQ_MODEL_URL, {
+      headers: { Authorization: `Bearer ${GROQ_API_KEY}` },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.status === 401 || res.status === 403) return `clé refusée (${res.status})`;
+    if (res.status === 404) return "modèle retiré par Groq";
+    if (res.status === 429) return "ok"; // occupé, mais en service
+    if (!res.ok) return `Groq en erreur (${res.status})`;
+    const model = await res.json().catch(() => ({}));
+    return model.active === false ? "modèle désactivé par Groq" : "ok";
+  } catch {
+    return "Groq injoignable";
+  }
+}
+
+async function checkVoice() {
+  try {
+    const res = await fetch(`${TTS_URL}/health`, { signal: AbortSignal.timeout(2000) });
+    return res.ok ? "ok" : `voix en erreur (${res.status})`;
+  } catch {
+    return "voix arrêtée";
+  }
+}
+
+async function runHealthChecks() {
+  const [ia, voix] = await Promise.all([checkGroq(), checkVoice()]);
+  const fiche = readProfileSections().length ? "ok" : "fiche vide ou absente";
+  const status = ia !== "ok" || fiche !== "ok" ? "panne" : voix !== "ok" ? "degrade" : "ok";
+  return { status, checks: { ia, voix, fiche } };
+}
+
+app.get("/api/health", async (req, res) => {
+  if (!healthCache || Date.now() - healthCache.at > HEALTH_CACHE_MS) {
+    healthCache = { at: Date.now(), promise: runHealthChecks() };
+  }
+  const result = await healthCache.promise;
+  res.setHeader("Cache-Control", "no-store");
+  res.status(result.status === "panne" ? 503 : 200).json(result);
+});
+
+// Lance la voix Piper et la relance si elle s'arrête d'elle-même (plantage, mémoire…).
+// Au-delà de TTS_MAX_RESTARTS relances, on abandonne : le contrôle de santé le signalera.
+const TTS_MAX_RESTARTS = 5;
+const TTS_RESTART_DELAY_MS = 30_000;
+
 function startTtsServer() {
   if (!fs.existsSync(TTS_PYTHON)) {
     console.warn("ℹ️  Piper non installé (voir tts/README.md) : le navigateur utilisera sa propre voix.");
     return;
   }
-  const tts = spawn(TTS_PYTHON, [path.join(TTS_DIR, "server.py")], {
-    env: { ...process.env, TTS_PORT: String(TTS_PORT), PYTHONUNBUFFERED: "1" },
-    stdio: ["ignore", "inherit", "inherit"],
-  });
-  tts.on("exit", (code) => code && console.warn(`⚠️  Serveur de voix arrêté (code ${code})`));
+  let tts;
+  let restarts = 0;
+  let stopping = false;
+  const launch = () => {
+    tts = spawn(TTS_PYTHON, [path.join(TTS_DIR, "server.py")], {
+      env: { ...process.env, TTS_PORT: String(TTS_PORT), PYTHONUNBUFFERED: "1" },
+      stdio: ["ignore", "inherit", "inherit"],
+    });
+    tts.on("exit", (code, signal) => {
+      if (stopping) return;
+      console.warn(`⚠️  Serveur de voix arrêté (${signal || `code ${code}`})`);
+      if (restarts >= TTS_MAX_RESTARTS) {
+        return console.error(`❌ Voix abandonnée après ${TTS_MAX_RESTARTS} relances : redémarrer le service.`);
+      }
+      restarts += 1;
+      console.warn(`🔁 Relance de la voix dans ${TTS_RESTART_DELAY_MS / 1000} s (${restarts}/${TTS_MAX_RESTARTS})`);
+      setTimeout(launch, TTS_RESTART_DELAY_MS).unref();
+    });
+  };
+  launch();
   // Le serveur de voix s'arrête avec celui-ci
   for (const signal of ["SIGINT", "SIGTERM"]) {
     process.on(signal, () => {
+      stopping = true;
       tts.kill();
       process.exit(0);
     });
@@ -361,4 +438,7 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, validateMessages, parseRetryDelay, buildSystemPrompt, readProfileSections, MAX_HISTORY };
+// resetHealthCache : pour les tests (chaque cas veut un contrôle frais)
+const resetHealthCache = () => (healthCache = null);
+
+module.exports = { app, validateMessages, parseRetryDelay, buildSystemPrompt, readProfileSections, resetHealthCache, MAX_HISTORY };

@@ -1,0 +1,71 @@
+# Surveillance de l'assistant en production, toutes les 30 minutes.
+# En cas d'échec, GitHub envoie un e-mail (à la personne qui a modifié ce fichier en
+# dernier). Voir « Surveillance » dans le README.
+name: Surveillance
+
+on:
+  schedule:
+    - cron: "7,37 * * * *" # pas à l'heure pile : les Actions programmées y sont retardées
+  workflow_dispatch: # bouton « Run workflow » pour un contrôle immédiat
+
+permissions:
+  contents: read
+
+env:
+  SITE: https://assistant.qualitycrew.fr
+  BULLE: https://qualitycrew.fr/
+  # « curl » dans le nom : ces visites ne comptent pas dans les statistiques (robots exclus)
+  UA: surveillance-curl
+
+jobs:
+  production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: L'IA, la voix et la fiche répondent (/api/health)
+        run: |
+          check() {
+            curl -s -A "$UA" --max-time 20 "$SITE/api/health" > health.json || echo '{"status":"injoignable"}' > health.json
+            jq -r .status health.json
+          }
+          status=$(check)
+          if [ "$status" != "ok" ]; then
+            # Une seule alerte par vraie panne : la voix met ~40 s à démarrer après un
+            # update.sh, Groq a parfois un raté passager. On revérifie après 2 minutes.
+            echo "Premier contrôle : $(cat health.json) — nouvel essai dans 2 min"
+            sleep 120
+            status=$(check)
+          fi
+          {
+            echo "### Santé de l'assistant : $status"
+            echo '```json'
+            jq . health.json 2>/dev/null || cat health.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat health.json
+          [ "$status" = "ok" ] || { echo "::error::Assistant en $status : $(cat health.json)"; exit 1; }
+
+      - name: La page et le modèle 3D sont servis
+        if: always()
+        run: |
+          curl -fsS -A "$UA" --max-time 20 -o /dev/null "$SITE/"
+          curl -fsS -A "$UA" --max-time 60 -o /dev/null "$SITE/models/avatar.glb"
+          echo "Page et avatar.glb : OK"
+
+      - name: La bulle est toujours sur qualitycrew.fr
+        if: always()
+        run: |
+          page=$(curl -fsS -A "$UA" --max-time 20 "$BULLE")
+          script=$(echo "$page" | grep -o '<script[^>]*data-origin="https://assistant.qualitycrew.fr"[^>]*>' | grep -o 'src="[^"]*"' | cut -d'"' -f2)
+          [ -n "$script" ] || { echo "::error::Script de la bulle absent de $BULLE"; exit 1; }
+          curl -fsS -A "$UA" --max-time 20 -o /dev/null "https://qualitycrew.fr$script"
+          echo "Bulle : $script OK"
+
+      - name: Le certificat HTTPS n'expire pas dans les 14 jours
+        if: always()
+        run: |
+          end=$(echo | openssl s_client -connect assistant.qualitycrew.fr:443 -servername assistant.qualitycrew.fr 2>/dev/null | openssl x509 -noout -enddate | cut -d= -f2)
+          days=$(( ($(date -d "$end" +%s) - $(date +%s)) / 86400 ))
+          echo "Certificat valable encore $days jours ($end)"
+          # certbot renouvelle à 30 jours : à 14, le renouvellement automatique a échoué
+          [ "$days" -ge 14 ] || { echo "::error::Certificat HTTPS : $days jours restants, vérifier certbot"; exit 1; }

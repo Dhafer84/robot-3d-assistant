@@ -49,6 +49,18 @@ npm run stats -- 7                   # 7 derniers jours
 npm run stats -- 90 --toutes         # toutes les questions sans réponse
 ```
 
+## Surveillance
+
+`GET /api/health` vérifie, sans poser de question à l'IA (aucun quota consommé), que la clé Groq est acceptée et que le modèle est toujours proposé, que la voix Piper répond et que la fiche est lisible. Réponse : `200` `ok`, `200` `degrade` (seule la voix manque : le navigateur lit avec la sienne) ou `503` `panne`, avec la cause (`modèle retiré par Groq`, `clé refusée (401)`…). Le résultat est gardé une minute.
+
+L'Action GitHub **Surveillance** (`.github/workflows/surveillance.yml`) l'interroge toutes les 30 minutes, vérifie aussi la page, le modèle 3D, la présence de la bulle sur qualitycrew.fr et la date d'expiration du certificat HTTPS (alerte à 14 jours). En cas d'échec (après un second essai 2 minutes plus tard), GitHub envoie un e-mail. Contrôle immédiat : onglet **Actions → Surveillance → Run workflow**.
+
+Si la voix Piper s'arrête, le serveur la relance (jusqu'à 5 fois). `npm run stats` détaille les erreurs Groq par cause.
+
+```bash
+curl https://assistant.qualitycrew.fr/api/health
+```
+
 ## Vérifier la justesse des réponses
 
 Les tests simulent l'IA : ils ne disent rien de la justesse des réponses. `npm run eval` pose de vraies questions (dont des erreurs constatées en production) à un serveur lancé et vérifie ce que les réponses doivent dire ou ne jamais dire. Il consomme du quota Groq.
@@ -64,7 +76,7 @@ npm run eval -- https://assistant.qualitycrew.fr             # production
 cd backend && npm test
 ```
 
-40 tests (`backend/test/`, `node:test`, aucune dépendance), sans réseau : l'API Groq est simulée. Ils couvrent la conversation (streaming, réflexion du modèle filtrée, sections de la fiche envoyées, limites Groq et par visiteur), les en-têtes de sécurité et la CSP, les fichiers servis sous `/vendor/`, le traitement du texte (balises d'émotion coupées, phrases, langue) les statistiques (aucune IP écrite, masquage, conservation) et l'absence de données personnelles dans la fiche. Ils tournent à chaque push sur GitHub (`.github/workflows/tests.yml`) et avant chaque redémarrage sur le VPS (`deploy/update.sh`).
+45 tests (`backend/test/`, `node:test`, aucune dépendance), sans réseau : l'API Groq est simulée. Ils couvrent la conversation (streaming, réflexion du modèle filtrée, sections de la fiche envoyées, limites Groq et par visiteur), les en-têtes de sécurité et la CSP, les fichiers servis sous `/vendor/`, le contrôle de santé, le traitement du texte (balises d'émotion coupées, phrases, langue), les statistiques (aucune IP écrite, masquage, conservation) et l'absence de données personnelles dans la fiche. Ils tournent à chaque push sur GitHub (`.github/workflows/tests.yml`) et avant chaque redémarrage sur le VPS (`deploy/update.sh`).
 
 ## Sécurité
 

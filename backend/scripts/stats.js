@@ -76,6 +76,13 @@ if (questions.length) {
 }
 const limits = events.filter((e) => e.e === "limit");
 if (limits.length) console.log(`Limites atteintes : ${count(limits, "kind")}`);
+// Erreurs Groq par cause (401 clé refusée, 404 modèle retiré, exception = injoignable…),
+// avec la dernière date : une panne que personne n'a signalée se voit ici.
+const errors = events.filter((e) => e.e === "error");
+if (errors.length) {
+  console.log(`\n⚠️  Erreurs : ${errors.length} (${count(errors, "status")})`);
+  console.log(`   dernière le ${errors.at(-1).t.slice(0, 16).replace("T", " à ")} UTC — voir journalctl -u robot3d`);
+}
 
 // ====== Questions sans réponse ======
 const unanswered = questions.filter((q) => !q.answered && q.q);

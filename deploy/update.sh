@@ -24,4 +24,14 @@ echo "🔄 Redémarrage du service…"
 sudo systemctl restart robot3d
 sleep 2
 systemctl --no-pager --lines=5 status robot3d
-echo "✅ À jour. La voix Piper sera prête dans ~40 s."
+
+echo "🩺 Contrôle de santé dans 45 s (le temps que la voix Piper démarre)…"
+sleep 45
+# Interrogé une seule fois : le résultat est gardé une minute par le serveur
+health=$(curl -s --max-time 15 http://127.0.0.1:3000/api/health || echo '{"status":"injoignable"}')
+echo "   $health"
+case "$health" in
+  *'"status":"ok"'*) echo "✅ À jour, IA et voix en service." ;;
+  *'"status":"degrade"'*) echo "⚠️  À jour, mais la voix ne répond pas encore : journalctl -u robot3d -n 30" ;;
+  *) echo "❌ L'assistant est en panne : journalctl -u robot3d -n 30"; exit 1 ;;
+esac

@@ -20,7 +20,7 @@ const assert = require("node:assert/strict");
 const fs = require("fs");
 const path = require("path");
 
-const { app, MAX_HISTORY } = require("../server");
+const { app, MAX_HISTORY, resetHealthCache } = require("../server");
 const { inlineScriptHashes, NON_PAGE_CSP } = require("../security");
 
 const FRONTEND = path.join(__dirname, "..", "..", "frontend");
@@ -39,7 +39,7 @@ const delta = (d) => ({ choices: [{ delta: d }] });
 
 globalThis.fetch = async (url, options) => {
   if (String(url).startsWith("https://api.groq.com")) {
-    groqRequests.push(JSON.parse(options.body));
+    groqRequests.push(options?.body ? JSON.parse(options.body) : { url: String(url) });
     const reply = groqReplies.shift();
     if (!reply) throw new Error("appel Groq inattendu");
     return reply();
@@ -188,6 +188,49 @@ test("/api/tts : texte invalide refusé, voix absente signalée (503)", async ()
   assert.equal((await post({ text: "" })).status, 400);
   assert.equal((await post({ text: "x".repeat(601) })).status, 400);
   assert.equal((await post({ text: "Bonjour" })).status, 503);
+});
+
+// ====== Santé (surveillance) ======
+// La voix est absente dans les tests (port 9) : au mieux « degrade ».
+async function health() {
+  resetHealthCache();
+  const res = await realFetch(`${base}/api/health`);
+  return { status: res.status, body: await res.json() };
+}
+
+test("/api/health : IA en service, voix absente → 200 « degrade », sans poser de question", async () => {
+  groqReplies.push(() => Response.json({ id: "openai/gpt-oss-20b", active: true }));
+  const { status, body } = await health();
+  assert.equal(status, 200);
+  assert.deepEqual(body, { status: "degrade", checks: { ia: "ok", voix: "voix arrêtée", fiche: "ok" } });
+  // Fiche du modèle consultée (gratuit), aucune conversation envoyée (quota)
+  assert.equal(groqRequests.length, 1);
+  assert.match(groqRequests[0].url, /\/openai\/v1\/models\/openai\/gpt-oss-20b$/);
+});
+
+test("/api/health : modèle retiré (incident du 04/10), clé refusée, Groq injoignable → 503", async () => {
+  const cas = [
+    [() => Response.json({ error: { code: "model_not_found" } }, { status: 404 }), "modèle retiré par Groq"],
+    [() => Response.json({ id: "openai/gpt-oss-20b", active: false }), "modèle désactivé par Groq"],
+    [() => new Response("clé invalide gsk_secret", { status: 401 }), "clé refusée (401)"],
+    [() => new Response("", { status: 500 }), "Groq en erreur (500)"],
+    [() => Promise.reject(new TypeError("fetch failed")), "Groq injoignable"],
+  ];
+  for (const [reply, expected] of cas) {
+    groqReplies.push(reply);
+    const { status, body } = await health();
+    assert.equal(status, 503, expected);
+    assert.equal(body.status, "panne");
+    assert.equal(body.checks.ia, expected);
+    assert.doesNotMatch(JSON.stringify(body), /gsk_|secret/); // rien de Groq n'est recopié
+  }
+});
+
+test("/api/health : résultat gardé une minute (un appel répété ne relaie pas vers Groq)", async () => {
+  resetHealthCache();
+  groqReplies.push(() => Response.json({ active: true }));
+  for (let i = 0; i < 5; i++) assert.equal((await realFetch(`${base}/api/health`)).status, 200);
+  assert.equal(groqRequests.length, 1);
 });
 
 // ====== En-têtes de sécurité ======
