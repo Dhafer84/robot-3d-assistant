@@ -34,3 +34,29 @@ test("les consignes de confidentialité sont toujours envoyées à l'IA", () => 
   assert.match(prompt, /## Consignes particulières/);
   assert.match(prompt, /N'invente jamais/);
 });
+
+test("le détail d'un outil n'est envoyé que s'il en est question, avec la vue d'ensemble", () => {
+  const prompt = buildSystemPrompt([{ role: "user", content: "Comment marche CauseTrace ?" }]);
+  assert.match(prompt, /## Outil CauseTrace/);
+  assert.match(prompt, /## Quality Crew/); // la doctrine et l'IA par outil vont avec
+  for (const autre of ["SafetyScope", "ThreatScope", "RegWatch", "SentinelScan"]) {
+    assert.doesNotMatch(prompt, new RegExp(`## Outil ${autre}`), autre);
+  }
+  // Question générale : la vue d'ensemble suffit, sans le détail des six outils
+  const general = buildSystemPrompt([{ role: "user", content: "Quel outil n'utilise aucune IA ?" }]);
+  assert.match(general, /## Quality Crew/);
+  assert.doesNotMatch(general, /## Outil /);
+});
+
+test("question de suivi : l'outil est retrouvé grâce à la réponse précédente (bug du 05/10)", () => {
+  // Conversation réelle : le visiteur ne renomme pas l'outil (« ce dernier », « donc il y a de l'IA »)
+  const prompt = buildSystemPrompt([
+    { role: "user", content: "comment utiliser cause trace" },
+    { role: "assistant", content: "<reflexion> CauseTrace guide une réclamation 8D…" },
+    { role: "user", content: "ou intervient l ia ds ce dernier" },
+    { role: "assistant", content: "<reflexion> Dans CauseTrace, l'IA est facultative…" },
+    { role: "user", content: "donc il y a de lai" },
+  ]);
+  assert.match(prompt, /## Outil CauseTrace/);
+  assert.match(prompt, /IA FACULTATIVE, sur boutons/);
+});

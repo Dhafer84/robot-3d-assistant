@@ -49,6 +49,15 @@ npm run stats -- 7                   # 7 derniers jours
 npm run stats -- 90 --toutes         # toutes les questions sans réponse
 ```
 
+## Vérifier la justesse des réponses
+
+Les tests simulent l'IA : ils ne disent rien de la justesse des réponses. `npm run eval` pose de vraies questions (dont des erreurs constatées en production) à un serveur lancé et vérifie ce que les réponses doivent dire ou ne jamais dire. Il consomme du quota Groq.
+
+```bash
+cd backend && npm run eval                                   # serveur local
+npm run eval -- https://assistant.qualitycrew.fr             # production
+```
+
 ## Tests
 
 ```bash

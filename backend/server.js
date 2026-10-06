@@ -46,10 +46,18 @@ const MAX_SILENT_WAIT = 8;
 const ALWAYS_SECTIONS = ["Dhafer", "Contact", "Consignes"];
 // …les autres seulement si la question (ou la précédente) contient un de ces mots-clés.
 const SECTION_KEYWORDS = {
-  Parcours: /exp[ée]rien|parcours|carri[èe]re|poste|travail|emploi|job|actia|cipi|volvo|scania|continental|jaguar|entreprise|r[ôo]le|manag|team|[ée]quipe|aspice|audit|usine|ann[ée]e|work|career|company/,
-  "Compétences": /comp[ée]ten|sait|ma[îi]tris|skill|technolog|norme|iso|iatf|python|power ?bi|fmea|amdec|8d|misra|ldra|coverity|kubernetes|cloud|devops/,
+  Parcours: /exp[ée]rien|parcours|carri[èe]re|poste|travail|emploi|job|actia|cipi|volvo|scania|continental|jaguar|entreprise|r[ôo]le|manag|team|[ée]quipe|usine|ann[ée]e|work|career|company/,
+  "Compétences": /comp[ée]ten|sait|ma[îi]tris|skill|technolog|norme|iso|iatf|python|power ?bi|fmea|amdec|misra|ldra|coverity|kubernetes|cloud|devops/,
   Formation: /formation|dipl[ôo]m|[ée]tud|[ée]cole|ing[ée]nieur|certif|esprit|iset|universit|degree|study|educat/,
-  "Quality Crew": /quality ?crew|site|outil|d[ée]mo|agent|\bia\b|\bai\b|intelligen|llm|hara|tara|asil|8d|sentinel|safety|threat|regwatch|cause|crewai|github|tool|projet|project/,
+  "Quality Crew": /quality ?crew|site|outil|d[ée]mo|agent|\bia\b|\bai\b|intelligen|llm|crewai|github|tool|projet|project/,
+  // Une section par outil : son détail (fonctionnement, rôle exact de l'IA) n'est envoyé que
+  // s'il est question de lui — sinon la fiche coûterait trop de tokens à chaque question.
+  "Outil QualityCrew": /qualitycrew|\baudit|agents?\b|crewai/,
+  "Outil SentinelScan": /sentinel|fuite|leak|github|secret|27001/,
+  "Outil SafetyScope": /safety ?scope|\bhara\b|asil|redout|hazard/,
+  "Outil ThreatScope": /threat ?scope|\btara\b|menace|threat|cyber|21434|r155|stride/,
+  "Outil RegWatch": /reg ?watch|veille|signal|r[ée]glement|regulat/,
+  "Outil CauseTrace": /cause ?trace|\b8d\b|ishikawa|pourquoi|r[ée]clamation|cause racine|root cause/,
   "Autres projets": /projet|portfolio|robot|avatar|3d|assistant|qui es|who are|toi-m[êe]me|comment (tu )?(es|as)|project/,
 };
 
@@ -66,6 +74,9 @@ Faits :
 - Tout ce que tu sais sur Dhafer, ses projets et Quality Crew vient de la fiche de profil ci-dessous. N'invente jamais d'information (expérience, client, tarif, chiffre, date) qui n'y figure pas.
 - Les lignes entre crochets [ ... ] sont des champs non remplis : ignore-les.
 - Seuls les extraits de la fiche utiles à la question te sont fournis. Si l'information demandée n'y est pas, dis simplement que tu ne la connais pas et propose de contacter Dhafer.
+- Ne conclus jamais qu'une chose n'existe pas (« aucune IA », « pas de fonction ») si la fiche ne le dit pas explicitement : dans le doute, dis que tu ne sais pas précisément.
+- Reste cohérent avec tes réponses précédentes ; si l'une d'elles contredit la fiche, corrige-toi franchement.
+- Pour utiliser un outil, résume ce que dit la fiche et invite à l'essayer sur qualitycrew.fr ; n'invente jamais de boutons ni d'étapes d'interface.
 - Pour des questions générales (technologie, qualité logicielle, tests…), tu peux répondre avec tes connaissances, brièvement.`;
 
 // La fiche est relue à chaque question : on peut la modifier sans redémarrer le serveur.
@@ -85,18 +96,27 @@ function readProfileSections() {
 }
 
 function buildSystemPrompt(messages) {
-  const question = messages
-    .filter((m) => m.role === "user")
-    .slice(-2)
-    .map((m) => m.content)
-    .join(" ")
-    .toLowerCase();
+  // Les deux dernières questions ET la dernière réponse de l'assistant : dans une question de
+  // suivi (« et l'IA dans ce dernier ? »), c'est souvent sa réponse qui nomme l'outil.
+  const lastAnswer = messages.filter((m) => m.role === "assistant").slice(-1);
+  const recent = [...messages.filter((m) => m.role === "user").slice(-2), ...lastAnswer];
+  const question = recent.map((m) => m.content).join(" ").toLowerCase();
 
-  const selected = readProfileSections().filter(({ title }) => {
-    if (ALWAYS_SECTIONS.some((name) => title.startsWith(name))) return true;
-    const entry = Object.entries(SECTION_KEYWORDS).find(([name]) => title.startsWith(name));
-    return entry ? entry[1].test(question) : true; // section inconnue : toujours jointe
-  });
+  const sections = readProfileSections();
+  const wanted = new Set(
+    sections
+      .filter(({ title }) => {
+        if (ALWAYS_SECTIONS.some((name) => title.startsWith(name))) return true;
+        const entry = Object.entries(SECTION_KEYWORDS).find(([name]) => title.startsWith(name));
+        return entry ? entry[1].test(question) : true; // section inconnue : toujours jointe
+      })
+      .map((s) => s.title)
+  );
+  // Le détail d'un outil ne va pas sans la vue d'ensemble de Quality Crew (doctrine, IA par outil)
+  if ([...wanted].some((t) => t.startsWith("Outil "))) {
+    for (const s of sections) if (s.title.startsWith("Quality Crew")) wanted.add(s.title);
+  }
+  const selected = sections.filter((s) => wanted.has(s.title));
 
   return `${PERSONA}\n\n--- FICHE DE PROFIL (extraits utiles à la question) ---\n${selected.map((s) => s.text).join("\n\n")}`;
 }
