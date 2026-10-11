@@ -97,6 +97,10 @@ Sources : CV de Dhafer (2026) et le site www.qualitycrew.fr.
   injectés, 15 points de contrôle). Quatre agents IA (CrewAI) travaillent l'un après l'autre :
   analyste d'exigences, vérificateur de conformité, détecteur de risques, rédacteur de synthèse.
   IA REQUISE : c'est le seul outil qui en dépend ; le rapport reste un brouillon à relire.
+- Gabarits à télécharger sur la page Audit (exigences, plan de test, rapport de revue, en
+  Markdown, en français et en anglais), sur le modèle de l'exemple, pour préparer ses propres
+  documents. L'audit sur ses PROPRES documents n'est PAS encore disponible : aujourd'hui,
+  l'audit tourne seulement sur le jeu de démonstration. Ne rien y mettre de confidentiel.
 
 ## Outil SentinelScan
 

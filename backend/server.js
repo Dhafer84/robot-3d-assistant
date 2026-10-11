@@ -68,7 +68,7 @@ const SECTION_KEYWORDS = {
   "Quality Crew": /quality ?crew|site|outil|d[ée]mo|agent|\bia\b|\bai\b|intelligen|llm|crewai|github|tool|projet|project/,
   // Une section par outil : son détail (fonctionnement, rôle exact de l'IA) n'est envoyé que
   // s'il est question de lui — sinon la fiche coûterait trop de tokens à chaque question.
-  "Outil QualityCrew": /qualitycrew|\baudit|agents?\b|crewai/,
+  "Outil QualityCrew": /qualitycrew|\baudit|agents?\b|crewai|gabarit|template|mes (propres )?documents|my (own )?documents|t[ée]l[ée]vers|upload/,
   "Outil SentinelScan": /sentinel|fuite|leak|github|secret|27001/,
   "Outil SafetyScope": /safety ?scope|\bhara\b|asil|redout|hazard/,
   "Outil ThreatScope": /threat ?scope|\btara\b|menace|threat|cyber|21434|r155|stride/,

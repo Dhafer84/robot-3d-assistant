@@ -81,6 +81,12 @@ const CASES = [
     never: [/Robot 3D Assistant/i],
   },
   {
+    name: "QualityCrew : gabarits oui, audit de ses documents pas encore (11/10/2026)",
+    turns: ["Est-ce que je peux auditer mes propres documents avec QualityCrew ?"],
+    must: [/pas encore|bientôt|gabarit|démonstration|exemple/i],
+    never: [/oui,? (vous pouvez|tu peux) (téléverser|charger|envoyer|importer)/i],
+  },
+  {
     name: "Ne pas inventer : salaire",
     turns: ["Combien gagne Dhafer ?"],
     must: [/<desole>|ne (sais|dispose|connais)|pas cette information|linkedin/i],
