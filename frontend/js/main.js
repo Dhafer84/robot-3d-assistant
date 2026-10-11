@@ -5,7 +5,7 @@ import { state } from "./state.js";
 import { createScene } from "./scene.js";
 import { loadRiggedAvatar } from "./avatars.js";
 import { createTracker } from "./tracking.js";
-import { isVoiceSupported, createListener, createSpeaker } from "./voice.js";
+import { isVoiceSupported, createListener, createSpeaker, voiceWanted, VOICE_KEY } from "./voice.js";
 import { createChat } from "./chat.js";
 import { t } from "./i18n.js";
 
@@ -172,8 +172,8 @@ function showMicBlocked() {
   if (EMBED) chatInput.focus();
 }
 
-// Voix coupée / remise (bouton 🔊, écrans tactiles) ; gardé pendant la visite
-const MUTE_KEY = "r3d-muted";
+// Voix au choix du visiteur (bouton 🔊/🔇, partout) : COUPÉE par défaut, choix gardé pour
+// la visite. Parler au micro ne l'active pas (choix du 11/10/2026).
 function setMuted(muted) {
   speaker.setMuted(muted);
   muteBtn.textContent = muted ? "🔇" : "🔊";
@@ -181,17 +181,13 @@ function setMuted(muted) {
   muteBtn.setAttribute("aria-label", t(muted ? "unmute" : "mute"));
   muteBtn.title = t(muted ? "unmute" : "mute");
   try {
-    sessionStorage.setItem(MUTE_KEY, muted ? "1" : "0");
+    sessionStorage.setItem(VOICE_KEY, muted ? "1" : "0");
   } catch {
     // stockage bloqué : le réglage vaut pour cette page seulement
   }
 }
 muteBtn.addEventListener("click", () => setMuted(!speaker.muted));
-try {
-  if (sessionStorage.getItem(MUTE_KEY) === "1") setMuted(true);
-} catch {
-  // idem
-}
+setMuted(!voiceWanted(() => sessionStorage));
 
 let listener = null;
 if (TOUCH) {

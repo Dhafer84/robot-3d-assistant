@@ -75,6 +75,12 @@ const CASES = [
     never: [/\b(the|offers|tools)\b/i],
   },
   {
+    name: "Présentation : qui es-tu ? (nom affiché « Assistant », phase 14)",
+    turns: ["Bonjour, qui es-tu ?"],
+    must: [/assistant/i, /Dhafer/i],
+    never: [/Robot 3D Assistant/i],
+  },
+  {
     name: "Ne pas inventer : salaire",
     turns: ["Combien gagne Dhafer ?"],
     must: [/<desole>|ne (sais|dispose|connais)|pas cette information|linkedin/i],

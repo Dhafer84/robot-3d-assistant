@@ -14,12 +14,12 @@ export const TEXTS = {
   fr: {
     // index.html
     loading: "Chargement de l'assistant…",
-    chatEmpty: "Pose-moi une question à voix haute ou par écrit 👋",
-    chatEmptyTouch: "Écris-moi ta question, je te réponds à voix haute 👋",
+    chatEmpty: "Pose-moi une question à voix haute ou par écrit 👋 (🔊 pour m'entendre)",
+    chatEmptyTouch: "Écris-moi ta question 👋 (🔊 pour m'entendre)",
     placeholder: "Écris ta question…",
     send: "Envoyer",
     mute: "Couper la voix",
-    unmute: "Remettre la voix",
+    unmute: "Activer la voix",
     privacy:
       "Les questions auxquelles je ne sais pas répondre sont gardées 90 jours, sans rien qui t'identifie, pour enrichir mes connaissances.",
     talkOn: "🎙️ Activer écoute auto",
@@ -65,12 +65,12 @@ export const TEXTS = {
   },
   en: {
     loading: "Loading the assistant…",
-    chatEmpty: "Ask me a question out loud or in writing 👋",
-    chatEmptyTouch: "Type your question, I'll answer out loud 👋",
+    chatEmpty: "Ask me a question out loud or in writing 👋 (🔊 to hear me)",
+    chatEmptyTouch: "Type your question 👋 (🔊 to hear me)",
     placeholder: "Type your question…",
     send: "Send",
     mute: "Mute the voice",
-    unmute: "Unmute the voice",
+    unmute: "Turn on the voice",
     privacy:
       "Questions I can't answer are kept for 90 days, with nothing that identifies you, to help me learn.",
     talkOn: "🎙️ Start listening",

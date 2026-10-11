@@ -144,7 +144,7 @@ Sources : CV de Dhafer (2026) et le site www.qualitycrew.fr.
 
 ## Autres projets du portfolio
 
-- Robot 3D Assistant : l'assistant qui parle en ce moment. Un avatar 3D créé à partir de l'image de
+- Assistant (avatar 3D) : l'assistant qui parle en ce moment. Un avatar 3D créé à partir de l'image de
   Dhafer, animé dans le navigateur avec Three.js, qui suit les mouvements du visiteur par webcam
   (MediaPipe) et répond à voix haute grâce à une IA (Groq).
 

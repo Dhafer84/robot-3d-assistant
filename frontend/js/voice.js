@@ -12,12 +12,27 @@ export function isVoiceSupported() {
 const BROWSER_LANGS = { fr: "fr-FR", en: "en-US", ar: "ar-SA" };
 const PIPER_RETRY_DELAY = 30000; // ms avant de réessayer Piper après un échec
 
+// Choix de la voix gardé pour la VISITE (sessionStorage) : "0" = voix activée, "1" = coupée
+export const VOICE_KEY = "r3d-muted";
+
+// Le visiteur a-t-il activé la voix plus tôt dans la visite ? Non par défaut, et non si le
+// stockage est illisible ou bloqué. getStorage : fonction, car le simple accès à
+// window.sessionStorage peut lever une erreur (stockage bloqué).
+export function voiceWanted(getStorage) {
+  try {
+    return getStorage()?.getItem(VOICE_KEY) === "0";
+  } catch {
+    return false;
+  }
+}
+
 // File de phrases à prononcer, lues au fur et à mesure que la réponse arrive.
 // Chaque phrase est synthétisée par Piper sur le serveur (voix naturelle) dès qu'elle est
 // ajoutée, puis jouée dans l'ordre ; le volume du son anime la bouche (state.voiceLevel).
 // Si Piper est indisponible (ou pour l'arabe), on utilise la voix du navigateur.
 // state.isSpeaking reste vrai tant que la file n'est pas vide.
-// Voix coupée (bouton 🔇, écrans tactiles) : rien n'est lu ni synthétisé (aucune requête).
+// Voix coupée — PAR DÉFAUT, le visiteur l'active avec 🔊 (choix du 11/10/2026) : rien n'est
+// lu ni synthétisé (aucune requête), la bouche reste immobile (isSpeaking reste faux).
 export function createSpeaker(state) {
   let ctx = null;
   let analyser = null;
@@ -27,7 +42,7 @@ export function createSpeaker(state) {
   let generation = 0; // les phrases d'une réponse annulée sont ignorées
   let source = null;
   let piperRetryAt = 0;
-  let muted = false;
+  let muted = true;
 
   function audioContext() {
     if (!ctx) {

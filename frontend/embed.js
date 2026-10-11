@@ -26,16 +26,16 @@
   const origin = new URL(script.dataset.origin || script.src).origin;
   const TEXTS = {
     fr: {
-      label: "Parler à mon assistant",
-      title: "Assistant de Dhafer",
+      label: "Parler à l'assistant",
+      title: "Assistant",
       close: "Fermer",
       expand: "Agrandir",
       shrink: "Réduire",
       move: "Glisser pour déplacer",
     },
     en: {
-      label: "Talk to my assistant",
-      title: "Dhafer's assistant",
+      label: "Talk to the assistant",
+      title: "Assistant",
       close: "Close",
       expand: "Expand",
       shrink: "Shrink",

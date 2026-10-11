@@ -1,4 +1,4 @@
-"""Serveur de synthèse vocale (Piper) pour le Robot 3D Assistant.
+"""Serveur de synthèse vocale (Piper) pour l'Assistant (avatar 3D de Dhafer).
 
 Lancé automatiquement par backend/server.js. N'écoute qu'en local : c'est le serveur
 Node qui relaie les requêtes du navigateur (POST /api/tts).

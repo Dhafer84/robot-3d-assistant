@@ -6,7 +6,7 @@
   <!-- Téléchargements lancés dès le début, en parallèle (sinon le modèle attendrait Three.js) -->
   <link rel="preload" href="/models/avatar.glb" as="fetch" crossorigin="anonymous" />
   <link rel="modulepreload" href="/vendor/three/build/three.module.js" />
-  <title>Dhafer • Robot 3D Assistant</title>
+  <title>Assistant</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="Assistant 3D de Dhafer Bouthelja : pose tes questions sur son parcours et sur Quality Crew." />
   <!-- Mode intégré (iframe sur un autre site) : activé par ?embed avant l'affichage -->
@@ -193,16 +193,14 @@
 
     #sendBtn:hover { background: #3b82f6; }
 
-    /* Couper / remettre la voix : seulement sur écran tactile (voir plus bas) */
-    #muteBtn { display: none; padding: 8px 12px; }
+    /* Activer / couper la voix, partout : voix coupée par défaut (choix du 11/10/2026) */
+    #muteBtn { padding: 8px 12px; }
 
-    /* Téléphones et tablettes (écran tactile) : saisie écrite seulement, réponses toujours lues
-       à voix haute (choix du 06/10/2026). Le micro y est souvent bloqué dans la bulle par le
-       navigateur. Plus de micro ni de suivi webcam, un bouton pour couper la voix ; main.js
-       ne crée pas l'écoute (même requête, TOUCH). Les ordinateurs ne changent pas. */
+    /* Téléphones et tablettes (écran tactile) : saisie écrite seulement (choix du 06/10/2026) :
+       le micro y est souvent bloqué dans la bulle par le navigateur. Ni micro ni suivi webcam ;
+       main.js ne crée pas l'écoute (même requête, TOUCH). Les ordinateurs ne changent pas. */
     @media (pointer: coarse) {
       #talkBtn, #camBtn { display: none; }
-      #muteBtn { display: inline-block; }
       .embed #ui { display: none; } /* dans la bulle, il ne restait que le statut */
     }
 
@@ -324,10 +322,10 @@
     </div>
     <div id="side">
       <div id="trackingSlot"></div>
-      <div id="chat" aria-live="polite" data-empty="Pose-moi une question à voix haute ou par écrit 👋" data-i18n-empty="chatEmpty"></div>
+      <div id="chat" aria-live="polite" data-empty="Pose-moi une question à voix haute ou par écrit 👋 (🔊 pour m'entendre)" data-i18n-empty="chatEmpty"></div>
       <form id="chatForm" autocomplete="off">
         <input id="chatInput" type="text" placeholder="Écris ta question…" data-i18n-placeholder="placeholder" maxlength="2000" />
-        <button id="muteBtn" type="button" aria-pressed="false" aria-label="Couper la voix" data-i18n-label="mute" title="Couper la voix" data-i18n-title="mute">🔊</button>
+        <button id="muteBtn" type="button" aria-pressed="true" aria-label="Activer la voix" data-i18n-label="unmute" title="Activer la voix" data-i18n-title="unmute">🔇</button>
         <button id="sendBtn" type="submit" aria-label="Envoyer" data-i18n-label="send">➤</button>
       </form>
       <p id="privacyNote" data-i18n="privacy">

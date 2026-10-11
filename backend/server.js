@@ -549,7 +549,7 @@ function startTtsServer() {
 // sans ouvrir de port ni lancer la voix.
 if (require.main === module) {
   app.listen(PORT, HOST, () => {
-    console.log(`🚀 Robot 3D Assistant disponible sur http://localhost:${PORT} (modèles : ${GROQ_MODELS.join(" puis ")})`);
+    console.log(`🚀 Assistant disponible sur http://localhost:${PORT} (modèles : ${GROQ_MODELS.join(" puis ")})`);
     startTtsServer();
     // Conservation limitée des statistiques : purge au démarrage, puis chaque jour
     stats.purgeOld();
