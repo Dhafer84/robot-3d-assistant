@@ -86,6 +86,41 @@ function chat(messages, ip = newVisitor(), lang) {
 
 const ask = (text) => [{ role: "user", content: text }];
 
+// ====== CORS : l'orbe de qualitycrew.fr ======
+test("CORS : /api/chat accepté depuis qualitycrew.fr, préflight compris", async () => {
+  const pre = await realFetch(`${base}/api/chat`, {
+    method: "OPTIONS",
+    headers: { Origin: "https://qualitycrew.fr", "Access-Control-Request-Method": "POST",
+      "Access-Control-Request-Headers": "content-type" },
+  });
+  assert.equal(pre.status, 204);
+  assert.equal(pre.headers.get("access-control-allow-origin"), "https://qualitycrew.fr");
+  assert.match(pre.headers.get("access-control-allow-headers"), /Content-Type/i);
+  groqReplies.push(() => sse([delta({ content: "<joie> Bonjour !" })]));
+  const res = await realFetch(`${base}/api/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: "https://www.qualitycrew.fr", "X-Forwarded-For": newVisitor() },
+    body: JSON.stringify({ messages: [{ role: "user", content: "Bonjour" }], lang: "fr" }),
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get("access-control-allow-origin"), "https://www.qualitycrew.fr");
+  assert.match(res.headers.get("vary") || "", /Origin/);
+  assert.match(await res.text(), /Bonjour/);
+});
+
+test("CORS : aucun autre site n'est autorisé, et seul /api/chat est ouvert", async () => {
+  const pre = await realFetch(`${base}/api/chat`, {
+    method: "OPTIONS",
+    headers: { Origin: "https://evil.example", "Access-Control-Request-Method": "POST" },
+  });
+  assert.equal(pre.headers.get("access-control-allow-origin"), null);
+  const tts = await realFetch(`${base}/api/tts`, {
+    method: "OPTIONS",
+    headers: { Origin: "https://qualitycrew.fr", "Access-Control-Request-Method": "POST" },
+  });
+  assert.equal(tts.headers.get("access-control-allow-origin"), null);
+});
+
 // ====== Conversation ======
 test("/api/chat renvoie le texte de la réponse au fil de l'eau, sans la réflexion du modèle", async () => {
   groqReplies.push(() =>

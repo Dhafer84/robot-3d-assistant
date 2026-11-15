@@ -150,7 +150,9 @@ Sources : CV de Dhafer (2026) et le site www.qualitycrew.fr.
 
 - Assistant (avatar 3D) : l'assistant qui parle en ce moment. Un avatar 3D créé à partir de l'image de
   Dhafer, animé dans le navigateur avec Three.js, qui suit les mouvements du visiteur par webcam
-  (MediaPipe) et répond à voix haute grâce à une IA (Groq).
+  (MediaPipe) et répond à voix haute grâce à une IA (Groq). Sur le site Quality Crew, le même
+  assistant prend la forme d'une sphère lumineuse en bas à droite de chaque page : on lui écrit sa
+  question, et il répond par écrit dans une carte (sans avatar, sans voix ni micro).
 
 ## Contact
 

@@ -92,7 +92,7 @@ const LANG_RULE_EN =
 const ENGLISH_REMINDER =
   "\n\n--- LANGUAGE ---\nThe visitor's last message is in English, or ambiguous (a product name, \"ok\"…) on the English version of the site: answer in English.";
 
-const PERSONA = `Tu es l'assistant personnel de Dhafer Bouthelja. Tu apparais sous la forme d'un avatar 3D à son image, sur son portfolio et sur le site Quality Crew, et tu parles aux visiteurs à voix haute.
+const PERSONA = `Tu es l'assistant personnel de Dhafer Bouthelja. Tu apparais sous la forme d'un avatar 3D à son image sur son portfolio, où tu parles aux visiteurs à voix haute, et sous la forme d'une sphère lumineuse qui répond par écrit sur le site Quality Crew.
 
 Style :
 - Réponds toujours dans la langue du dernier message du visiteur : ${LANG_RULE} Ton chaleureux et professionnel.
@@ -288,7 +288,8 @@ app.use(
 function recordQuestion(req, messages, answer, lang, model) {
   const answered = !stats.isUnanswered(answer);
   stats.record("question", {
-    embed: /[?&]embed\b/.test(req.get("referer") || ""),
+    // bulle (iframe ?embed) ou orbe de qualitycrew.fr (appel CORS, sans referer)
+    embed: /[?&]embed\b/.test(req.get("referer") || "") || FRAME_ANCESTORS.includes(req.get("origin")),
     lang, // langue de l'interface (pas celle de la question)
     ...(model !== GROQ_MODEL && { model }), // réponse d'un modèle de secours
     turn: messages.filter((m) => m.role === "user").length,
@@ -359,7 +360,24 @@ const resetQuota = () => exhaustedUntil.clear();
 const chatLimit = rateLimit("visitor-chat", CHAT_LIMIT_PER_MINUTE, (s, lang) => SERVER_TEXTS[lang].visitorLimit(s));
 const ttsLimit = rateLimit("visitor-tts", TTS_LIMIT_PER_MINUTE, () => "Trop de demandes de voix.");
 
-app.post("/api/chat", chatLimit, async (req, res) => {
+// L'orbe de qualitycrew.fr (site/assistant.js de ce dépôt-là) appelle /api/chat depuis son
+// propre site : CORS, pour les seuls sites de FRAME_ANCESTORS (mêmes sites qu'avant la bulle).
+// Placé AVANT chatLimit, pour qu'un refus 429 reste lisible par la page.
+function chatCors(req, res, next) {
+  const origin = req.get("origin");
+  if (origin && FRAME_ANCESTORS.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Methods", "POST");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    res.setHeader("Access-Control-Max-Age", "600");
+  }
+  res.setHeader("Vary", "Origin");
+  if (req.method === "OPTIONS") return res.status(204).end();
+  next();
+}
+app.options("/api/chat", chatCors);
+
+app.post("/api/chat", chatCors, chatLimit, async (req, res) => {
   const messages = req.body?.messages;
   const lang = langOf(req);
   const texts = SERVER_TEXTS[lang];

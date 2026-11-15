@@ -61,6 +61,15 @@ jobs:
           curl -fsS -A "$UA" --max-time 20 -o /dev/null "https://qualitycrew.fr$script"
           echo "Bulle : $script OK"
 
+      - name: L'orbe de qualitycrew.fr peut appeler l'API (CORS)
+        if: always()
+        run: |
+          allow=$(curl -fsS -A "$UA" --max-time 20 -o /dev/null -D - -X OPTIONS \
+            -H "Origin: https://qualitycrew.fr" -H "Access-Control-Request-Method: POST" \
+            https://assistant.qualitycrew.fr/api/chat | tr -d '\r' | grep -i '^access-control-allow-origin:' | cut -d' ' -f2)
+          [ "$allow" = "https://qualitycrew.fr" ] || { echo "::error::CORS refusé pour qualitycrew.fr (« $allow »)"; exit 1; }
+          echo "CORS : $allow OK"
+
       - name: Le certificat HTTPS n'expire pas dans les 14 jours
         if: always()
         run: |

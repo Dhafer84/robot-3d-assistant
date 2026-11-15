@@ -57,7 +57,7 @@ Le compte Groq gratuit limite **chaque modèle** à 8 000 tokens par minute et *
 
 `GET /api/health` vérifie, sans poser de question à l'IA (aucun quota consommé), que la clé Groq est acceptée et que le modèle est toujours proposé, que la voix Piper répond, que la fiche est lisible et qu'il reste du quota (`quota` : `ok`, `secours (…)` ou `épuisé, reprise dans N min`). Réponse : `200` `ok`, `200` `degrade` (seule la voix manque : le navigateur lit avec la sienne) ou `503` `panne`, avec la cause (`modèle retiré par Groq`, `clé refusée (401)`…). Le résultat est gardé une minute.
 
-L'Action GitHub **Surveillance** (`.github/workflows/surveillance.yml`) l'interroge toutes les 30 minutes, vérifie aussi la page, le modèle 3D, la présence de la bulle sur qualitycrew.fr et la date d'expiration du certificat HTTPS (alerte à 14 jours). En cas d'échec (après un second essai 2 minutes plus tard), GitHub envoie un e-mail. Contrôle immédiat : onglet **Actions → Surveillance → Run workflow**.
+L'Action GitHub **Surveillance** (`.github/workflows/surveillance.yml`) l'interroge toutes les 30 minutes, vérifie aussi la page, le modèle 3D, la présence de l'assistant sur qualitycrew.fr, l'autorisation CORS de son orbe et la date d'expiration du certificat HTTPS (alerte à 14 jours). En cas d'échec (après un second essai 2 minutes plus tard), GitHub envoie un e-mail. Contrôle immédiat : onglet **Actions → Surveillance → Run workflow**.
 
 Si la voix Piper s'arrête, le serveur la relance (jusqu'à 5 fois). `npm run stats` détaille les erreurs Groq par cause.
 
@@ -90,7 +90,9 @@ Les en-têtes sont posés par l'application elle-même (`backend/security.js`), 
 - **Aucun script tiers** : Three.js, le décodeur Draco et MediaPipe sont installés par npm en versions figées et servis par ce serveur (`/vendor/…`). Seuls les dossiers utiles sont exposés.
 - **CSP stricte** sur les pages : `'self'` uniquement, scripts en ligne autorisés par empreinte (calculée sur `index.html`), jamais `'unsafe-inline'` ni `eval` pour les scripts.
 - **Suivi webcam isolé** : MediaPipe a besoin d'`eval` ; il tourne donc dans une page à part (`tracking.html`), chargée dans une iframe seulement quand le visiteur active le suivi. Elle seule reçoit `'unsafe-eval'`, n'affiche aucun texte et ne transmet que des nombres.
-- **Intégration limitée** : seuls l'assistant lui-même et les sites de `FRAME_ANCESTORS` (par défaut qualitycrew.fr) peuvent l'afficher dans une bulle.
+- **Intégration limitée** : seuls l'assistant lui-même et les sites de `FRAME_ANCESTORS` (par défaut qualitycrew.fr) peuvent l'afficher dans une bulle, ou appeler `POST /api/chat` depuis leur propre page (CORS, `/api/chat` seulement).
+
+**Sur qualitycrew.fr, depuis le 15/11/2026**, l'assistant n'est plus la bulle avec l'avatar : c'est une « orbe » (sphère de points, carte réponse, écrit seulement) codée dans ce site-là (`site/assistant.js`), qui appelle `POST /api/chat` en CORS. Les limites par visiteur et les statistiques s'appliquent pareil ; ces questions comptent comme `embed`, mais les « vues de la bulle » n'y sont plus comptées (l'orbe ne charge pas la page de l'assistant).
 - HSTS, `nosniff`, `Referrer-Policy`, `Permissions-Policy` (micro et caméra pour l'assistant seul), limite de requêtes par visiteur, serveur en écoute locale derrière Nginx.
 
 ## Mise en ligne
@@ -129,7 +131,7 @@ Le ton et les règles de réponse (langue, longueur, pas d'emojis car tout est l
 | `GROQ_MODEL` | `openai/gpt-oss-20b` | Modèle utilisé pour les réponses |
 | `GROQ_FALLBACK_MODELS` | `openai/gpt-oss-120b` | Modèles de secours, quand le précédent a atteint sa limite (voir « Quota Groq ») |
 | `PORT` | `3000` | Port du serveur |
-| `FRAME_ANCESTORS` | `https://qualitycrew.fr https://www.qualitycrew.fr` | Sites autorisés à afficher l'assistant dans une bulle |
+| `FRAME_ANCESTORS` | `https://qualitycrew.fr https://www.qualitycrew.fr` | Sites autorisés à afficher l'assistant dans une bulle et à appeler `/api/chat` (CORS) |
 | `HOST` | `127.0.0.1` | Adresse d'écoute (`0.0.0.0` pour l'ouvrir sur le réseau local) |
 | `CHAT_LIMIT_PER_MINUTE` | `10` | Questions par minute et par visiteur (protège le quota Groq) |
 | `TTS_LIMIT_PER_MINUTE` | `60` | Phrases lues par minute et par visiteur |
